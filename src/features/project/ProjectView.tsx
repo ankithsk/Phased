@@ -8,6 +8,7 @@ import { ModuleSidebar } from './ModuleSidebar'
 import { PhaseSection } from './PhaseSection'
 import { PinnedStrip } from './PinnedStrip'
 import { ContextResumeBanner } from './ContextResumeBanner'
+import { ItemDetailPanel } from './ItemDetailPanel'
 import type { Module, Phase, ProjectStatus } from '@/types/db'
 
 const PROJECT_STATUS_CHIP: Record<ProjectStatus, string> = {
@@ -21,8 +22,7 @@ export function ProjectView() {
   const { project, modules, phases, loading } = useProject(projectId)
 
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null)
-  // Exposed for Task 13 — detail panel integration
-  const [, setSelectedItemId] = useState<string | null>(null)
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
   const [showArchived, setShowArchived] = useState(false)
 
   const modulesEnabled = !!project?.modules_enabled
@@ -160,6 +160,11 @@ export function ProjectView() {
           </div>
         </div>
       </main>
+
+      <ItemDetailPanel
+        itemId={selectedItemId}
+        onClose={() => setSelectedItemId(null)}
+      />
     </div>
   )
 }

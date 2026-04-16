@@ -4,9 +4,11 @@ import { router } from './routes'
 import { AuthGuard } from './features/auth/AuthGuard'
 import { projectsRepo } from './repos/projects'
 import { useAuth } from './hooks/useAuth'
+import { QuickCaptureProvider } from './features/quick-capture/QuickCaptureProvider'
 
 function AuthedShell() {
-  const { session } = useAuth()
+  const { session, signOut } = useAuth()
+
   useEffect(() => {
     if (!session) return
     // Idempotent server-side; no-ops if user already has projects.
@@ -15,7 +17,22 @@ function AuthedShell() {
       console.warn('seedStarters failed:', err.message ?? err)
     })
   }, [session])
-  return <RouterProvider router={router} />
+
+  useEffect(() => {
+    const handler = () => {
+      signOut().catch(() => {
+        /* noop — supabase handles errors internally */
+      })
+    }
+    window.addEventListener('pcc:sign-out', handler as EventListener)
+    return () => window.removeEventListener('pcc:sign-out', handler as EventListener)
+  }, [signOut])
+
+  return (
+    <QuickCaptureProvider>
+      <RouterProvider router={router} />
+    </QuickCaptureProvider>
+  )
 }
 
 export default function App() {
