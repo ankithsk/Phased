@@ -6,6 +6,7 @@ import { useProject } from '@/hooks/useProject'
 import { projectsRepo } from '@/repos/projects'
 import { ModuleSidebar } from './ModuleSidebar'
 import { PhaseSection } from './PhaseSection'
+import { AddPhaseButton } from './AddPhaseButton'
 import { PinnedStrip } from './PinnedStrip'
 import { ContextResumeBanner } from './ContextResumeBanner'
 import { ItemDetailPanel } from './ItemDetailPanel'
@@ -61,6 +62,15 @@ export function ProjectView() {
     () => [...filteredPhases].sort((a, b) => a.number - b.number),
     [filteredPhases]
   )
+
+  const nextPhaseNumber = useMemo(() => {
+    const scope = modulesEnabled
+      ? selectedModuleId === null
+        ? phases
+        : phases.filter((p) => p.module_id === selectedModuleId)
+      : phases
+    return scope.length === 0 ? 0 : Math.max(...scope.map((p) => p.number)) + 1
+  }, [phases, modulesEnabled, selectedModuleId])
 
   if (loading || !project) {
     return (
@@ -141,6 +151,7 @@ export function ProjectView() {
                 grouped={groupedByModule}
                 moduleLookup={moduleLookup}
                 modules={modules}
+                projectId={project.id}
                 onItemClick={setSelectedItemId}
                 showArchived={showArchived}
               />
@@ -151,12 +162,19 @@ export function ProjectView() {
                 <PhaseSection
                   key={phase.id}
                   phase={phase}
+                  projectId={project.id}
                   defaultExpanded={phase.is_current}
                   onItemClick={setSelectedItemId}
                   showArchived={showArchived}
                 />
               ))
             )}
+
+            <AddPhaseButton
+              projectId={project.id}
+              moduleId={selectedModuleId}
+              nextNumber={nextPhaseNumber}
+            />
           </div>
         </div>
       </main>
@@ -281,6 +299,7 @@ interface GroupedPhasesProps {
   grouped: Map<string | null, Phase[]>
   moduleLookup: Map<string, Module>
   modules: Module[]
+  projectId: string
   onItemClick: (id: string) => void
   showArchived: boolean
 }
@@ -289,6 +308,7 @@ function GroupedPhases({
   grouped,
   moduleLookup,
   modules,
+  projectId,
   onItemClick,
   showArchived
 }: GroupedPhasesProps) {
@@ -328,6 +348,7 @@ function GroupedPhases({
               <PhaseSection
                 key={phase.id}
                 phase={phase}
+                projectId={projectId}
                 defaultExpanded={phase.is_current}
                 onItemClick={onItemClick}
                 showArchived={showArchived}

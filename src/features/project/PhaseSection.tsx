@@ -3,10 +3,12 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronRight, Calendar } from 'lucide-react'
 import { useItemsByPhase } from '@/hooks/useItems'
 import { ItemRow } from './ItemRow'
+import { PhaseActionsMenu } from './PhaseActionsMenu'
 import type { Phase, PhaseStatus } from '@/types/db'
 
 export interface PhaseSectionProps {
   phase: Phase
+  projectId: string
   defaultExpanded: boolean
   onItemClick: (id: string) => void
   showArchived: boolean
@@ -42,6 +44,7 @@ function formatRelativeDate(iso: string | null): string | null {
 
 export function PhaseSection({
   phase,
+  projectId,
   defaultExpanded,
   onItemClick,
   showArchived
@@ -54,10 +57,17 @@ export function PhaseSection({
 
   return (
     <section className="overflow-hidden rounded-2xl border border-border/70 bg-card/40 backdrop-blur-sm">
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setExpanded((v) => !v)}
-        className="sticky top-0 z-10 flex w-full items-center gap-3 border-b border-border/60 bg-card/70 px-4 py-3 text-left backdrop-blur-xl transition-colors hover:bg-card/90"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setExpanded((v) => !v)
+          }
+        }}
+        className="sticky top-0 z-10 flex w-full cursor-pointer items-center gap-3 border-b border-border/60 bg-card/70 px-4 py-3 text-left backdrop-blur-xl transition-colors hover:bg-card/90"
       >
         <motion.span
           animate={{ rotate: expanded ? 90 : 0 }}
@@ -91,8 +101,9 @@ export function PhaseSection({
               {relDate}
             </span>
           )}
+          <PhaseActionsMenu phase={phase} projectId={projectId} />
         </div>
-      </button>
+      </div>
 
       <AnimatePresence initial={false}>
         {expanded && (
