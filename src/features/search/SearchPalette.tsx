@@ -415,7 +415,7 @@ export function SearchPalette() {
     if (el) el.scrollIntoView({ block: 'nearest' })
   }, [selectedIndex])
 
-  const activate = useCallback((row: Row) => {
+  const activate = useCallback(async (row: Row) => {
     if (row.kind === 'nav') {
       if (!row.to) return
       navigateTo(row.to)
@@ -427,8 +427,17 @@ export function SearchPalette() {
       setOpen(false)
       return
     }
-    // item
-    const projectId = row.project?.id
+    // item — fallback: if the phase→project lookup hasn't loaded yet,
+    // resolve projectId on demand so hitting Enter doesn't silently no-op.
+    let projectId = row.project?.id
+    if (!projectId) {
+      const { data } = await supabase
+        .from('phases')
+        .select('project_id')
+        .eq('id', row.item.phase_id)
+        .maybeSingle()
+      projectId = data?.project_id
+    }
     if (!projectId) return
     navigateTo(`/p/${projectId}#item=${row.item.id}`)
     setOpen(false)

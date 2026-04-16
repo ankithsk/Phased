@@ -147,6 +147,24 @@ export const phasesRepo = {
 
     const { data: next } = await nextQuery
     if (next && next[0]) {
+      // Before setting is_current on the next phase, clear any other phase
+      // that's already is_current=true in the same scope. Otherwise the
+      // partial unique index rejects the update and the auto-activate
+      // silently fails, leaving the project with no active phase.
+      if (phase.module_id === null) {
+        await supabase
+          .from('phases')
+          .update({ is_current: false })
+          .eq('project_id', phase.project_id)
+          .is('module_id', null)
+          .eq('is_current', true)
+      } else {
+        await supabase
+          .from('phases')
+          .update({ is_current: false })
+          .eq('module_id', phase.module_id)
+          .eq('is_current', true)
+      }
       await supabase
         .from('phases')
         .update({ status: 'active', is_current: true })

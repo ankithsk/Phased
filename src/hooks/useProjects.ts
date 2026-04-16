@@ -35,18 +35,40 @@ export function useProjects(): UseProjectsResult {
   useEffect(() => {
     let mounted = true
     refresh().finally(() => mounted && setLoading(false))
+
+    // Debounce summary refreshes so a burst of item writes doesn't cause a
+    // storm of RPC calls.
+    let timer: number | undefined
+    const scheduleRefresh = () => {
+      if (!mounted) return
+      if (timer) window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        if (mounted) refresh()
+      }, 300)
+    }
+
     const channel = supabase
       .channel('projects-list')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'projects' },
-        () => {
-          if (mounted) refresh()
-        }
+        scheduleRefresh
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'items' },
+        scheduleRefresh
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'phases' },
+        scheduleRefresh
       )
       .subscribe()
+
     return () => {
       mounted = false
+      if (timer) window.clearTimeout(timer)
       supabase.removeChannel(channel)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

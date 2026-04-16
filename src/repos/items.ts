@@ -111,10 +111,18 @@ export const itemsRepo = {
   },
 
   async search(query: string, includeArchived = false): Promise<Item[]> {
+    // PostgREST .or() uses commas + parens as filter syntax, so user-provided
+    // text must not carry any of those through. Also escape LIKE wildcards so
+    // a literal `%` or `_` doesn't turn into a wildcard match.
+    const sanitized = query
+      .replace(/[,()"\\]/g, ' ')
+      .replace(/[%_]/g, '\\$&')
+      .trim()
+    if (!sanitized) return []
     let q = supabase
       .from('items')
       .select('*')
-      .or(`title.ilike.%${query}%,description.ilike.%${query}%`)
+      .or(`title.ilike.%${sanitized}%,description.ilike.%${sanitized}%`)
       .limit(50)
       .order('updated_at', { ascending: false })
     if (!includeArchived) q = q.eq('archived', false)
