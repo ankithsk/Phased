@@ -5,6 +5,7 @@ import { AuthGuard } from './features/auth/AuthGuard'
 import { projectsRepo } from './repos/projects'
 import { useAuth } from './hooks/useAuth'
 import { QuickCaptureProvider } from './features/quick-capture/QuickCaptureProvider'
+import { SearchPalette } from './features/search/SearchPalette'
 
 function AuthedShell() {
   const { session, signOut } = useAuth()
@@ -30,6 +31,7 @@ function AuthedShell() {
 
   return (
     <QuickCaptureProvider>
+      <SearchPalette />
       <RouterProvider router={router} />
     </QuickCaptureProvider>
   )

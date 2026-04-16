@@ -25,6 +25,7 @@ import { activityRepo } from '@/repos/activity'
 import { linksRepo } from '@/repos/links'
 import { supabase } from '@/lib/supabase'
 import { Markdown } from '@/lib/markdown'
+import { LinkPicker } from './LinkPicker'
 import type {
   Item,
   ItemType,
@@ -200,6 +201,7 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
   const [loading, setLoading] = useState(true)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [links, setLinks] = useState<LinkedRow[]>([])
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   const flashError = useCallback((msg: string) => {
     setErrorMsg(msg)
@@ -489,10 +491,25 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
             <LinkedItems
               links={links}
               onUnlink={(fromId, toId) => void onUnlink(fromId, toId)}
+              onAdd={() => setPickerOpen(true)}
             />
           </div>
         )}
       </div>
+
+      {/* Link picker */}
+      {item && (
+        <LinkPicker
+          open={pickerOpen}
+          fromItemId={item.id}
+          excludeItemIds={[item.id, ...links.map((l) => l.otherId)]}
+          onClose={() => setPickerOpen(false)}
+          onLinked={() => {
+            setPickerOpen(false)
+            void fetchLinks()
+          }}
+        />
+      )}
 
       {/* Footer */}
       {item && (
@@ -1052,10 +1069,12 @@ function DescriptionField({
 
 function LinkedItems({
   links,
-  onUnlink
+  onUnlink,
+  onAdd
 }: {
   links: LinkedRow[]
   onUnlink: (fromId: string, toId: string) => void
+  onAdd: () => void
 }) {
   return (
     <div>
@@ -1086,12 +1105,10 @@ function LinkedItems({
         )}
       </div>
       <div className="mt-2">
-        {/* TODO(Task 17): wire link picker */}
         <button
           type="button"
-          disabled
-          title="Coming soon"
-          className="flex items-center gap-1.5 rounded-md border border-dashed border-border/60 px-2 py-1 text-[11.5px] text-muted-foreground/60 opacity-60"
+          onClick={onAdd}
+          className="flex items-center gap-1.5 rounded-md border border-dashed border-border/60 px-2 py-1 text-[11.5px] text-muted-foreground transition-colors duration-150 hover:border-border hover:bg-secondary/40 hover:text-foreground"
         >
           <Plus className="h-3 w-3" />
           Link to another item
