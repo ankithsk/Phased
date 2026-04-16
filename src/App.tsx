@@ -6,6 +6,7 @@ import { projectsRepo } from './repos/projects'
 import { useAuth } from './hooks/useAuth'
 import { QuickCaptureProvider } from './features/quick-capture/QuickCaptureProvider'
 import { SearchPalette } from './features/search/SearchPalette'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 function AuthedShell() {
   const { session, signOut } = useAuth()
@@ -39,8 +40,10 @@ function AuthedShell() {
 
 export default function App() {
   return (
-    <AuthGuard>
-      <AuthedShell />
-    </AuthGuard>
+    <ErrorBoundary>
+      <AuthGuard>
+        <AuthedShell />
+      </AuthGuard>
+    </ErrorBoundary>
   )
 }
