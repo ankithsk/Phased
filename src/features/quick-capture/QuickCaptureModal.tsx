@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   Bug,
   ChevronDown,
+  ClipboardPaste,
   Command as CommandIcon,
   FileText,
   GitBranch,
@@ -24,6 +25,7 @@ import type {
   Phase,
   Project,
 } from '@/types/db'
+import { PasteParseMode, type ParseSuggestion } from './PasteParseMode'
 
 export interface QuickCaptureModalProps {
   open: boolean
@@ -107,6 +109,9 @@ export function QuickCaptureModal(props: QuickCaptureModalProps) {
   // Submit
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+
+  // Mode
+  const [mode, setMode] = useState<'form' | 'paste'>('form')
 
   // UI
   const [projectMenuOpen, setProjectMenuOpen] = useState(false)
@@ -241,6 +246,7 @@ export function QuickCaptureModal(props: QuickCaptureModalProps) {
     setProjectMenuOpen(false)
     setModuleMenuOpen(false)
     setPhaseMenuOpen(false)
+    setMode('form')
   }, [])
 
   useEffect(() => {
@@ -322,6 +328,33 @@ export function QuickCaptureModal(props: QuickCaptureModalProps) {
     onClose,
   ])
 
+  const applySuggestion = useCallback((s: ParseSuggestion) => {
+    if (s.projectId) setSelectedProjectId(s.projectId)
+    if (s.type) setType(s.type)
+    if (s.priority) setPriority(s.priority)
+    if (s.title) {
+      setTitle(s.title)
+      setTitleError(null)
+    }
+    if (s.description) {
+      setDescription(s.description)
+      setShowMore(true)
+    }
+    if (s.source) {
+      setSource(s.source)
+      setShowMore(true)
+    }
+    if (s.tags && s.tags.length) {
+      setTagsInput((prev) => {
+        const prevTrim = prev.trim()
+        const appended = s.tags!.join(' ')
+        return prevTrim ? `${prevTrim} ${appended}` : appended
+      })
+      setShowMore(true)
+    }
+    setMode('form')
+  }, [])
+
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
@@ -329,13 +362,14 @@ export function QuickCaptureModal(props: QuickCaptureModalProps) {
         e.preventDefault()
         onClose()
       } else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        if (mode !== 'form') return
         e.preventDefault()
         handleSubmit()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose, handleSubmit])
+  }, [open, onClose, handleSubmit, mode])
 
   // ——— Toast auto-dismiss ——————————————————————————————————————
   useEffect(() => {
@@ -436,18 +470,66 @@ export function QuickCaptureModal(props: QuickCaptureModalProps) {
                     </span>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="h-7 w-7 rounded-full flex items-center justify-center text-white/50 hover:text-white/90 hover:bg-white/[0.06] transition-colors"
-                  aria-label="Close"
-                >
-                  <X className="h-4 w-4" />
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setMode((m) => (m === 'paste' ? 'form' : 'paste'))
+                    }
+                    className="group inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[11.5px] font-medium transition-all"
+                    style={{
+                      background:
+                        mode === 'paste'
+                          ? `linear-gradient(180deg, ${hexToRgba(accent, 0.22)}, ${hexToRgba(accent, 0.08)})`
+                          : 'rgba(255,255,255,0.04)',
+                      border: `1px solid ${mode === 'paste' ? accentRing : 'rgba(255,255,255,0.06)'}`,
+                      color:
+                        mode === 'paste'
+                          ? 'rgba(255,255,255,0.95)'
+                          : 'rgba(255,255,255,0.65)',
+                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+                    }}
+                    aria-pressed={mode === 'paste'}
+                    title="Paste to parse"
+                  >
+                    <ClipboardPaste className="h-3 w-3" />
+                    <span>Paste to parse</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="h-7 w-7 rounded-full flex items-center justify-center text-white/50 hover:text-white/90 hover:bg-white/[0.06] transition-colors"
+                    aria-label="Close"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
 
               {/* Body */}
               <div className="px-6 pb-5 max-h-[calc(100vh-8rem)] overflow-y-auto">
+                <AnimatePresence mode="wait" initial={false}>
+                  {mode === 'paste' ? (
+                    <motion.div
+                      key="paste"
+                      initial={{ opacity: 0, x: 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -6 }}
+                      transition={{ duration: 0.2, ease: APPLE_EASE }}
+                    >
+                      <PasteParseMode
+                        onCancel={() => setMode('form')}
+                        onParsed={applySuggestion}
+                      />
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="form"
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 6 }}
+                      transition={{ duration: 0.2, ease: APPLE_EASE }}
+                    >
                 {noProjects ? (
                   <EmptyState
                     title="Create a project first"
@@ -742,6 +824,9 @@ export function QuickCaptureModal(props: QuickCaptureModalProps) {
                     )}
                   </>
                 )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
               {/* Footer */}
