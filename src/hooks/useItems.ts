@@ -3,20 +3,25 @@ import { itemsRepo } from '@/repos/items'
 import { supabase } from '@/lib/supabase'
 import type { Item } from '@/types/db'
 
-export function useItemsByPhase(phaseId: string | null, includeArchived = false) {
+export function useItemsByPhase(phaseId: string | null, enabled: boolean = true) {
   const [items, setItems] = useState<Item[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (!phaseId) {
-      setItems([])
-      setLoading(false)
+    if (!phaseId || !enabled) {
+      // When gated off, don't fetch or subscribe. On a project page with many
+      // phases we want only the expanded phases to open a realtime channel,
+      // otherwise we'd open 20–30 concurrent subscriptions per project load.
       return
     }
     let mounted = true
     setLoading(true)
+    // Always fetch both archived and non-archived; callers filter client-side.
+    // This keeps the realtime channel identity stable when a user toggles
+    // "Show archived" — otherwise re-subscribing with the same channel name
+    // deduplicates and we lose live updates until a full reload.
     itemsRepo
-      .listByPhase(phaseId, includeArchived)
+      .listByPhase(phaseId, true)
       .then((data) => mounted && setItems(data))
       .finally(() => mounted && setLoading(false))
 
@@ -27,7 +32,7 @@ export function useItemsByPhase(phaseId: string | null, includeArchived = false)
         { event: '*', schema: 'public', table: 'items', filter: `phase_id=eq.${phaseId}` },
         async () => {
           if (!mounted) return
-          const data = await itemsRepo.listByPhase(phaseId, includeArchived)
+          const data = await itemsRepo.listByPhase(phaseId, true)
           if (mounted) setItems(data)
         }
       )
@@ -37,7 +42,7 @@ export function useItemsByPhase(phaseId: string | null, includeArchived = false)
       mounted = false
       supabase.removeChannel(channel)
     }
-  }, [phaseId, includeArchived])
+  }, [phaseId, enabled])
 
   return { items, loading }
 }

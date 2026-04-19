@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase'
-import type { ItemLink } from '@/types/db'
+import type { ItemLink, LinkRelation } from '@/types/db'
 
 async function currentUserId(): Promise<string> {
   const { data } = await supabase.auth.getUser()
@@ -17,31 +17,71 @@ export const linksRepo = {
     return data ?? []
   },
 
-  async link(fromId: string, toId: string): Promise<void> {
+  async link(
+    fromId: string,
+    toId: string,
+    relation: LinkRelation = 'links'
+  ): Promise<void> {
     if (fromId === toId) throw new Error('cannot link item to itself')
-    // Links are bidirectional in intent but the table keys on (from,to).
-    // Short-circuit if a reverse link already exists so we don't end up with
-    // two rows describing the same relationship.
-    const { data: existing } = await supabase
-      .from('item_links')
-      .select('from_item_id')
-      .or(
-        `and(from_item_id.eq.${fromId},to_item_id.eq.${toId}),and(from_item_id.eq.${toId},to_item_id.eq.${fromId})`
-      )
-      .limit(1)
-    if (existing && existing.length > 0) return
+
+    if (relation === 'links') {
+      // Generic links are bidirectional in intent; prevent creating the same
+      // relationship twice even if the user picked the opposite direction.
+      const { data: existing } = await supabase
+        .from('item_links')
+        .select('from_item_id')
+        .eq('relation', 'links')
+        .or(
+          `and(from_item_id.eq.${fromId},to_item_id.eq.${toId}),and(from_item_id.eq.${toId},to_item_id.eq.${fromId})`
+        )
+        .limit(1)
+      if (existing && existing.length > 0) return
+    } else {
+      // 'blocks' is directional. Only dedupe the exact same direction —
+      // A blocks B and B blocks A are different relationships (one may be
+      // wrong, but the user gets to correct that themselves).
+      const { data: existing } = await supabase
+        .from('item_links')
+        .select('from_item_id')
+        .eq('relation', 'blocks')
+        .eq('from_item_id', fromId)
+        .eq('to_item_id', toId)
+        .limit(1)
+      if (existing && existing.length > 0) return
+    }
+
     const user_id = await currentUserId()
-    const { error } = await supabase
-      .from('item_links')
-      .insert({ from_item_id: fromId, to_item_id: toId, user_id })
+    const { error } = await supabase.from('item_links').insert({
+      from_item_id: fromId,
+      to_item_id: toId,
+      relation,
+      user_id
+    })
     if (error) throw error
   },
 
-  async unlink(fromId: string, toId: string): Promise<void> {
+  async unlink(
+    fromId: string,
+    toId: string,
+    relation: LinkRelation = 'links'
+  ): Promise<void> {
+    if (relation === 'blocks') {
+      // Directional: delete only the exact (from, to) row.
+      const { error } = await supabase
+        .from('item_links')
+        .delete()
+        .match({ from_item_id: fromId, to_item_id: toId, relation: 'blocks' })
+      if (error) throw error
+      return
+    }
+    // Generic links: stored in a single direction but bidirectional in intent.
     const { error } = await supabase
       .from('item_links')
       .delete()
-      .match({ from_item_id: fromId, to_item_id: toId })
+      .eq('relation', 'links')
+      .or(
+        `and(from_item_id.eq.${fromId},to_item_id.eq.${toId}),and(from_item_id.eq.${toId},to_item_id.eq.${fromId})`
+      )
     if (error) throw error
   }
 }

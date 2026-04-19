@@ -9,7 +9,10 @@ import {
   Pin,
   PinOff,
   ChevronDown,
-  Check
+  Check,
+  CalendarClock,
+  Moon,
+  Target
 } from 'lucide-react'
 import { itemsRepo } from '@/repos/items'
 import type { Item, ItemStatus, ItemType, ItemPriority } from '@/types/db'
@@ -17,6 +20,9 @@ import type { Item, ItemStatus, ItemType, ItemPriority } from '@/types/db'
 export interface ItemRowProps {
   item: Item
   onClick: () => void
+  /** Optional map of goal id → name, provided by the project view so rows
+   *  can render the goal name without each loading goals independently. */
+  goalNames?: Record<string, string>
 }
 
 const TYPE_ICON: Record<ItemType, React.ComponentType<{ className?: string }>> = {
@@ -58,10 +64,59 @@ const STATUS_CHIP: Record<ItemStatus, string> = {
 
 const STATUSES: ItemStatus[] = ['open', 'in-progress', 'done', 'deferred']
 
-export function ItemRow({ item, onClick }: ItemRowProps) {
+function describeRevisit(iso: string | null): { label: string; className: string } | null {
+  if (!iso) return null
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  const target = new Date(iso + 'T00:00:00')
+  const diffDays = Math.round((target.getTime() - now.getTime()) / 86400000)
+  if (diffDays < 0) {
+    const abs = Math.abs(diffDays)
+    return {
+      label: abs === 1 ? 'Overdue 1d' : `Overdue ${abs}d`,
+      className: 'border-rose-500/30 bg-rose-500/10 text-rose-200/90'
+    }
+  }
+  if (diffDays === 0) {
+    return {
+      label: 'Revisit today',
+      className: 'border-amber-500/30 bg-amber-500/10 text-amber-200/90'
+    }
+  }
+  if (diffDays <= 7) {
+    return {
+      label: `Revisit ${diffDays}d`,
+      className: 'border-border/50 bg-secondary/40 text-muted-foreground/90'
+    }
+  }
+  // Hide the chip when the revisit date is far out so rows don't get noisy.
+  return null
+}
+
+function describeSnooze(iso: string | null): { label: string; className: string } | null {
+  if (!iso) return null
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  const target = new Date(iso + 'T00:00:00')
+  const diffDays = Math.round((target.getTime() - now.getTime()) / 86400000)
+  if (diffDays <= 0) return null
+  if (diffDays === 1) {
+    return {
+      label: 'Snoozed · 1d',
+      className: 'border-sky-500/30 bg-sky-500/10 text-sky-200/90'
+    }
+  }
+  return {
+    label: `Snoozed · ${diffDays}d`,
+    className: 'border-sky-500/25 bg-sky-500/5 text-sky-200/80'
+  }
+}
+
+export function ItemRow({ item, onClick, goalNames }: ItemRowProps) {
   const Icon = TYPE_ICON[item.type]
   const [statusOpen, setStatusOpen] = useState(false)
   const statusRef = useRef<HTMLDivElement>(null)
+  const goalName = item.goal_id ? goalNames?.[item.goal_id] : null
 
   useEffect(() => {
     if (!statusOpen) return
@@ -76,6 +131,8 @@ export function ItemRow({ item, onClick }: ItemRowProps) {
 
   const visibleTags = item.tags.slice(0, 3)
   const overflowTags = item.tags.length - visibleTags.length
+  const revisit = describeRevisit(item.revisit_at)
+  const snooze = describeSnooze(item.snoozed_until)
 
   const handlePin = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -122,7 +179,7 @@ export function ItemRow({ item, onClick }: ItemRowProps) {
           {item.source && (
             <>
               <span className="truncate">{item.source}</span>
-              {visibleTags.length > 0 && <span className="text-border">·</span>}
+              {(visibleTags.length > 0 || revisit) && <span className="text-border">·</span>}
             </>
           )}
           {visibleTags.map((tag) => (
@@ -136,6 +193,33 @@ export function ItemRow({ item, onClick }: ItemRowProps) {
           {overflowTags > 0 && (
             <span className="rounded-md bg-secondary/40 px-1.5 py-0.5 text-[10.5px] text-muted-foreground/70">
               +{overflowTags}
+            </span>
+          )}
+          {revisit && (
+            <span
+              title={`Revisit on ${item.revisit_at}`}
+              className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10.5px] ${revisit.className}`}
+            >
+              <CalendarClock className="h-2.5 w-2.5" />
+              {revisit.label}
+            </span>
+          )}
+          {snooze && (
+            <span
+              title={`Snoozed until ${item.snoozed_until}`}
+              className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10.5px] ${snooze.className}`}
+            >
+              <Moon className="h-2.5 w-2.5" />
+              {snooze.label}
+            </span>
+          )}
+          {goalName && (
+            <span
+              title={`Goal: ${goalName}`}
+              className="inline-flex max-w-[160px] items-center gap-1 rounded-md border border-amber-500/25 bg-amber-500/5 px-1.5 py-0.5 text-[10.5px] text-amber-200/90"
+            >
+              <Target className="h-2.5 w-2.5" />
+              <span className="truncate">{goalName}</span>
             </span>
           )}
         </div>

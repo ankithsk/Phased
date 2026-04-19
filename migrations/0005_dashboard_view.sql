@@ -37,12 +37,17 @@ as $$
     group by p.id
   ),
   current_phase as (
+    -- Pick one current phase per project. Prefer a project-scoped phase
+    -- (module_id null) when one exists; otherwise fall back to a
+    -- module-scoped current phase so dashboards for module-based projects
+    -- still show the current phase name.
     select distinct on (ph.project_id) ph.project_id, ph.name
     from phases ph
     where ph.user_id = auth.uid()
       and ph.is_current = true
-      and ph.module_id is null
-    order by ph.project_id, ph.number asc
+    order by ph.project_id,
+             case when ph.module_id is null then 0 else 1 end,
+             ph.number asc
   )
   select pp.project_id, pp.open_critical, pp.open_high, pp.open_medium, pp.open_low, cp.name
   from per_project pp

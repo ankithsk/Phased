@@ -34,7 +34,14 @@ interface DigestBuckets {
   deferred: Item[]
 }
 
-type SectionKey = 'completed' | 'added' | 'inprogress' | 'deferred' | 'upcoming'
+type SectionKey =
+  | 'completed'
+  | 'added'
+  | 'inprogress'
+  | 'deferred'
+  | 'upcoming'
+  | 'revisitdue'
+  | 'revisitsoon'
 
 // ---------- date helpers ----------
 
@@ -107,6 +114,8 @@ function TypeIcon({ type, className }: { type: ItemType; className?: string }) {
 function buildMarkdown(
   buckets: DigestBuckets,
   upcoming: PhaseLite[],
+  revisitDue: Item[],
+  revisitSoon: Item[],
   projectById: Map<string, Project>,
   phaseById: Map<string, PhaseLite>,
   now: Date
@@ -133,10 +142,12 @@ function buildMarkdown(
     lines.push('')
   }
 
+  if (revisitDue.length > 0) section('Due to revisit', revisitDue)
   section('Completed this week', buckets.completedRecently)
   section('Added this week', buckets.createdRecently)
   section('In progress', buckets.inProgress)
   if (buckets.deferred.length > 0) section('Blocked / deferred', buckets.deferred)
+  if (revisitSoon.length > 0) section('Coming up to revisit (next 7 days)', revisitSoon)
 
   lines.push(`## Upcoming phase targets (next 14 days) (${upcoming.length})`)
   if (upcoming.length === 0) {
@@ -490,13 +501,17 @@ export function DigestPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [phases, setPhases] = useState<PhaseLite[]>([])
   const [upcoming, setUpcoming] = useState<PhaseLite[]>([])
+  const [revisitDue, setRevisitDue] = useState<Item[]>([])
+  const [revisitSoon, setRevisitSoon] = useState<Item[]>([])
   const [toast, setToast] = useState(false)
   const [expanded, setExpanded] = useState<Record<SectionKey, boolean>>({
     completed: false,
     added: false,
     inprogress: false,
     deferred: false,
-    upcoming: false
+    upcoming: false,
+    revisitdue: false,
+    revisitsoon: false
   })
 
   const now = useMemo(() => new Date(), [])
@@ -507,18 +522,21 @@ export function DigestPage() {
       try {
         setLoading(true)
         setError(null)
-        const [digest, projectList, phasesRes, upcomingRes] = await Promise.all([
-          itemsRepo.listDigest(7),
-          projectsRepo.list(),
-          supabase.from('phases').select('id,name,target_date,project_id'),
-          supabase
-            .from('phases')
-            .select('id,name,target_date,project_id')
-            .not('target_date', 'is', null)
-            .gte('target_date', todayISO())
-            .lte('target_date', plusDaysISO(14))
-            .order('target_date', { ascending: true })
-        ])
+        const [digest, projectList, phasesRes, upcomingRes, due, soon] =
+          await Promise.all([
+            itemsRepo.listDigest(7),
+            projectsRepo.list(),
+            supabase.from('phases').select('id,name,target_date,project_id'),
+            supabase
+              .from('phases')
+              .select('id,name,target_date,project_id')
+              .not('target_date', 'is', null)
+              .gte('target_date', todayISO())
+              .lte('target_date', plusDaysISO(14))
+              .order('target_date', { ascending: true }),
+            itemsRepo.listRevisitDue().catch(() => [] as Item[]),
+            itemsRepo.listRevisitSoon(7).catch(() => [] as Item[])
+          ])
         if (cancelled) return
         if (phasesRes.error) throw phasesRes.error
         if (upcomingRes.error) throw upcomingRes.error
@@ -526,6 +544,8 @@ export function DigestPage() {
         setProjects(projectList)
         setPhases((phasesRes.data ?? []) as PhaseLite[])
         setUpcoming((upcomingRes.data ?? []) as PhaseLite[])
+        setRevisitDue(due)
+        setRevisitSoon(soon)
       } catch (e) {
         if (cancelled) return
         setError(e instanceof Error ? e.message : 'Failed to load digest')
@@ -570,6 +590,8 @@ export function DigestPage() {
       const md = buildMarkdown(
         { ...buckets, inProgress: inProgressSorted },
         upcoming,
+        revisitDue,
+        revisitSoon,
         projectById,
         phaseById,
         now
@@ -650,6 +672,30 @@ export function DigestPage() {
             transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
             className="space-y-10"
           >
+            {revisitDue.length > 0 && (
+              <Section
+                label="Due to revisit"
+                count={revisitDue.length}
+                description="Items you set a revisit date on — today or earlier."
+                emptyText="Nothing due to revisit."
+              >
+                <CollapsibleList
+                  items={revisitDue}
+                  sectionKey="revisitdue"
+                  expanded={expanded}
+                  onToggle={toggleExpanded}
+                  render={(item) => (
+                    <ItemRow
+                      key={item.id}
+                      item={item}
+                      projectById={projectById}
+                      phaseById={phaseById}
+                    />
+                  )}
+                />
+              </Section>
+            )}
+
             <Section
               label="Completed this week"
               count={buckets.completedRecently.length}
@@ -726,6 +772,30 @@ export function DigestPage() {
                 <CollapsibleList
                   items={buckets.deferred}
                   sectionKey="deferred"
+                  expanded={expanded}
+                  onToggle={toggleExpanded}
+                  render={(item) => (
+                    <ItemRow
+                      key={item.id}
+                      item={item}
+                      projectById={projectById}
+                      phaseById={phaseById}
+                    />
+                  )}
+                />
+              </Section>
+            )}
+
+            {revisitSoon.length > 0 && (
+              <Section
+                label="Coming up to revisit"
+                count={revisitSoon.length}
+                description="Revisit dates landing in the next 7 days."
+                emptyText="No revisits coming up."
+              >
+                <CollapsibleList
+                  items={revisitSoon}
+                  sectionKey="revisitsoon"
                   expanded={expanded}
                   onToggle={toggleExpanded}
                   render={(item) => (

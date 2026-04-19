@@ -49,6 +49,20 @@ export interface Phase {
   updated_at: string
 }
 
+export type GoalStatus = 'active' | 'achieved' | 'dropped'
+
+export interface Goal {
+  id: string
+  user_id: string
+  project_id: string
+  name: string
+  description: string | null
+  status: GoalStatus
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
 export interface Item {
   id: string
   user_id: string
@@ -62,13 +76,23 @@ export interface Item {
   pinned: boolean
   archived: boolean
   tags: string[]
+  /** ISO date (YYYY-MM-DD). When set and <= today, surfaces in the digest. */
+  revisit_at: string | null
+  /** ISO date. Items with snoozed_until > today are hidden from phase lists
+   *  until the user toggles "Show snoozed". */
+  snoozed_until: string | null
+  /** Optional link to a project goal (null = unassigned). */
+  goal_id: string | null
   created_at: string
   updated_at: string
 }
 
+export type LinkRelation = 'links' | 'blocks'
+
 export interface ItemLink {
   from_item_id: string
   to_item_id: string
+  relation: LinkRelation
   user_id: string
   created_at: string
 }

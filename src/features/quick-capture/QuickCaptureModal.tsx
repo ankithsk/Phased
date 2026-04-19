@@ -32,6 +32,7 @@ export interface QuickCaptureModalProps {
   onClose: () => void
   initialProjectId?: string
   initialPhaseId?: string
+  initialType?: ItemType
 }
 
 // ——— Constants ————————————————————————————————————————————————
@@ -83,7 +84,7 @@ function hexToRgba(hex: string | null | undefined, alpha: number): string {
 
 // ——— Component ————————————————————————————————————————————————
 export function QuickCaptureModal(props: QuickCaptureModalProps) {
-  const { open, onClose, initialProjectId, initialPhaseId } = props
+  const { open, onClose, initialProjectId, initialPhaseId, initialType } = props
 
   // Data
   const [projects, setProjects] = useState<Project[]>([])
@@ -259,6 +260,11 @@ export function QuickCaptureModal(props: QuickCaptureModalProps) {
     const t = setTimeout(() => titleRef.current?.focus(), 120)
     return () => clearTimeout(t)
   }, [open])
+
+  // ——— Apply initialType when the modal opens with a hint ———
+  useEffect(() => {
+    if (open && initialType) setType(initialType)
+  }, [open, initialType])
 
   // ——— Keyboard: Esc, Cmd/Ctrl+Enter ——————————————————————————
   const handleSubmit = useCallback(async () => {

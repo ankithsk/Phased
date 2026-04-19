@@ -18,11 +18,15 @@ import {
   Link2,
   Link2Off,
   AlertCircle,
-  Loader2
+  Loader2,
+  CalendarClock,
+  Moon,
+  Target
 } from 'lucide-react'
 import { itemsRepo } from '@/repos/items'
 import { activityRepo } from '@/repos/activity'
 import { linksRepo } from '@/repos/links'
+import { goalsRepo } from '@/repos/goals'
 import { supabase } from '@/lib/supabase'
 import { Markdown } from '@/lib/markdown'
 import { LinkPicker } from './LinkPicker'
@@ -30,7 +34,9 @@ import type {
   Item,
   ItemType,
   ItemPriority,
-  ItemStatus
+  ItemStatus,
+  LinkRelation,
+  Goal
 } from '@/types/db'
 
 export interface ItemDetailPanelProps {
@@ -136,8 +142,11 @@ function formatRelative(iso: string): string {
 interface LinkedRow {
   otherId: string
   otherTitle: string
+  /** The other item's status — used to flag open blockers. */
+  otherStatus: ItemStatus | null
   fromId: string
   toId: string
+  relation: LinkRelation
 }
 
 /* ------------------------------------------------------------------ */
@@ -201,7 +210,10 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
   const [loading, setLoading] = useState(true)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [links, setLinks] = useState<LinkedRow[]>([])
-  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerMode, setPickerMode] = useState<
+    null | 'links' | 'blocks' | 'blocked-by'
+  >(null)
+  const [goals, setGoals] = useState<Goal[]>([])
 
   const flashError = useCallback((msg: string) => {
     setErrorMsg(msg)
@@ -222,7 +234,7 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
       const { data, error } = await supabase
         .from('item_links')
         .select(
-          'from_item_id,to_item_id,from_item:items!item_links_from_item_id_fkey(id,title),to_item:items!item_links_to_item_id_fkey(id,title)'
+          'from_item_id,to_item_id,relation,from_item:items!item_links_from_item_id_fkey(id,title,status),to_item:items!item_links_to_item_id_fkey(id,title,status)'
         )
         .or(`from_item_id.eq.${itemId},to_item_id.eq.${itemId}`)
       if (error) throw error
@@ -232,8 +244,10 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
         return {
           otherId: other?.id ?? '',
           otherTitle: other?.title ?? '(untitled)',
+          otherStatus: (other?.status as ItemStatus | undefined) ?? null,
           fromId: row.from_item_id,
-          toId: row.to_item_id
+          toId: row.to_item_id,
+          relation: (row.relation as LinkRelation) ?? 'links'
         }
       })
       setLinks(rows)
@@ -260,7 +274,16 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
             .select('project_id')
             .eq('id', loaded.phase_id)
             .single()
-          if (!cancelled && phaseRow) setProjectId(phaseRow.project_id)
+          if (!cancelled && phaseRow) {
+            setProjectId(phaseRow.project_id)
+            // Load this project's goals so the goal picker can show them.
+            try {
+              const gs = await goalsRepo.listByProject(phaseRow.project_id)
+              if (!cancelled) setGoals(gs)
+            } catch {
+              /* goals are optional — ignore failures */
+            }
+          }
         }
         await fetchLinks()
       } catch (e) {
@@ -354,6 +377,30 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
     if (res) void logActivity('item_updated', { field: 'source', old, new: nextVal })
   }
 
+  const onRevisitCommit = async (next: string | null) => {
+    if (!item) return
+    if (next === item.revisit_at) return
+    const old = item.revisit_at
+    const res = await applyPatch({ revisit_at: next })
+    if (res) void logActivity('item_updated', { field: 'revisit_at', old, new: next })
+  }
+
+  const onSnoozeCommit = async (next: string | null) => {
+    if (!item) return
+    if (next === item.snoozed_until) return
+    const old = item.snoozed_until
+    const res = await applyPatch({ snoozed_until: next })
+    if (res) void logActivity('item_updated', { field: 'snoozed_until', old, new: next })
+  }
+
+  const onGoalChange = async (nextGoalId: string | null) => {
+    if (!item) return
+    if (nextGoalId === item.goal_id) return
+    const old = item.goal_id
+    const res = await applyPatch({ goal_id: nextGoalId })
+    if (res) void logActivity('item_updated', { field: 'goal_id', old, new: nextGoalId })
+  }
+
   const onDescriptionCommit = async (next: string) => {
     if (!item) return
     const nextVal = next.length === 0 ? null : next
@@ -404,10 +451,19 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
     }
   }
 
-  const onUnlink = async (fromId: string, toId: string) => {
+  const onUnlink = async (
+    fromId: string,
+    toId: string,
+    relation: LinkRelation
+  ) => {
     try {
-      await linksRepo.unlink(fromId, toId)
-      setLinks((prev) => prev.filter((l) => !(l.fromId === fromId && l.toId === toId)))
+      await linksRepo.unlink(fromId, toId, relation)
+      setLinks((prev) =>
+        prev.filter(
+          (l) =>
+            !(l.fromId === fromId && l.toId === toId && l.relation === relation)
+        )
+      )
     } catch (e) {
       flashError(e instanceof Error ? e.message : 'Unlink failed')
     }
@@ -467,6 +523,11 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
               <TypePill value={item.type} onChange={onTypeChange} />
               <PriorityPill value={item.priority} onChange={onPriorityChange} />
               <StatusPill value={item.status} onChange={onStatusChange} />
+              <GoalPill
+                value={item.goal_id}
+                goals={goals}
+                onChange={onGoalChange}
+              />
             </div>
 
             {/* Tags */}
@@ -474,6 +535,12 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
 
             {/* Source */}
             <SourceField value={item.source} onCommit={onSourceCommit} />
+
+            {/* Revisit on */}
+            <RevisitField value={item.revisit_at} onCommit={onRevisitCommit} />
+
+            {/* Snooze until */}
+            <SnoozeField value={item.snoozed_until} onCommit={onSnoozeCommit} />
 
             {/* Divider */}
             <div className="border-t border-border/70" />
@@ -487,25 +554,44 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
             {/* Divider */}
             <div className="border-t border-border/70" />
 
-            {/* Linked items */}
+            {/* Blocked by (this item needs these to be done first) */}
+            <BlockedBySection
+              rows={links.filter(
+                (l) => l.relation === 'blocks' && l.toId === item.id
+              )}
+              onUnlink={(fromId, toId) => void onUnlink(fromId, toId, 'blocks')}
+              onAdd={() => setPickerMode('blocked-by')}
+            />
+
+            {/* Blocks (this item is blocking these) */}
+            <BlocksSection
+              rows={links.filter(
+                (l) => l.relation === 'blocks' && l.fromId === item.id
+              )}
+              onUnlink={(fromId, toId) => void onUnlink(fromId, toId, 'blocks')}
+              onAdd={() => setPickerMode('blocks')}
+            />
+
+            {/* Linked items (generic) */}
             <LinkedItems
-              links={links}
-              onUnlink={(fromId, toId) => void onUnlink(fromId, toId)}
-              onAdd={() => setPickerOpen(true)}
+              links={links.filter((l) => l.relation === 'links')}
+              onUnlink={(fromId, toId) => void onUnlink(fromId, toId, 'links')}
+              onAdd={() => setPickerMode('links')}
             />
           </div>
         )}
       </div>
 
-      {/* Link picker */}
-      {item && (
+      {/* Link picker (reused for all three relation flows) */}
+      {item && pickerMode && (
         <LinkPicker
-          open={pickerOpen}
+          open={pickerMode !== null}
           fromItemId={item.id}
+          relation={pickerMode}
           excludeItemIds={[item.id, ...links.map((l) => l.otherId)]}
-          onClose={() => setPickerOpen(false)}
+          onClose={() => setPickerMode(null)}
           onLinked={() => {
-            setPickerOpen(false)
+            setPickerMode(null)
             void fetchLinks()
           }}
         />
@@ -811,6 +897,90 @@ function StatusPill({
   )
 }
 
+function GoalPill({
+  value,
+  goals,
+  onChange
+}: {
+  value: string | null
+  goals: Goal[]
+  onChange: (next: string | null) => void
+}) {
+  const { open, setOpen, ref } = useDropdown()
+  // Only offer active goals as targets; but if the item's current goal is
+  // achieved/dropped, keep it in the list so it stays changeable.
+  const active = goals.filter((g) => g.status === 'active')
+  const current = goals.find((g) => g.id === value) ?? null
+  const options = current && current.status !== 'active' ? [current, ...active] : active
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-secondary/40 px-2.5 py-1 text-[11.5px] font-medium text-foreground/90 transition-colors duration-150 hover:border-border hover:bg-secondary/70"
+      >
+        <Target
+          className={`h-3.5 w-3.5 ${current ? 'text-amber-300/80' : 'text-muted-foreground/70'}`}
+        />
+        <span className="max-w-[160px] truncate">
+          {current ? current.name : 'No goal'}
+        </span>
+        <ChevronDown className="h-3 w-3 opacity-60" />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -4, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -4, scale: 0.98 }}
+            transition={{ duration: 0.14, ease: EASE }}
+            className="absolute left-0 top-full z-20 mt-1.5 min-w-[220px] max-w-[320px] overflow-hidden rounded-lg border border-border/80 bg-popover/95 p-1 shadow-xl backdrop-blur-xl"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                onChange(null)
+              }}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-foreground/80 transition-colors hover:bg-secondary/70"
+            >
+              <Target className="h-3.5 w-3.5 text-muted-foreground/70" />
+              <span className="flex-1">No goal</span>
+              {value === null && <Check className="h-3 w-3 opacity-60" />}
+            </button>
+            {options.length === 0 ? (
+              <div className="px-3 py-2 text-[12px] text-muted-foreground/60">
+                No goals defined yet for this project.
+              </div>
+            ) : (
+              options.map((g) => (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => {
+                    setOpen(false)
+                    onChange(g.id)
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-foreground/90 transition-colors hover:bg-secondary/70"
+                >
+                  <Target className="h-3.5 w-3.5 text-amber-300/80" />
+                  <span className="flex-1 truncate">{g.name}</span>
+                  {g.status !== 'active' && (
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                      {g.status}
+                    </span>
+                  )}
+                  {value === g.id && <Check className="h-3 w-3 opacity-60" />}
+                </button>
+              ))
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
 /* ------------------------------------------------------------------ */
 /*  Tags                                                              */
 /* ------------------------------------------------------------------ */
@@ -1087,7 +1257,7 @@ function LinkedItems({
         ) : (
           links.map((l) => (
             <span
-              key={`${l.fromId}-${l.toId}`}
+              key={`${l.fromId}-${l.toId}-${l.relation}`}
               className="group flex items-center gap-1.5 rounded-md border border-border/60 bg-secondary/40 py-1 pl-2 pr-1 text-[11.5px] text-foreground/90"
             >
               <Link2 className="h-3 w-3 text-muted-foreground" />
@@ -1115,6 +1285,410 @@ function LinkedItems({
         </button>
       </div>
     </div>
+  )
+}
+
+function BlockedBySection({
+  rows,
+  onUnlink,
+  onAdd
+}: {
+  rows: LinkedRow[]
+  onUnlink: (fromId: string, toId: string) => void
+  onAdd: () => void
+}) {
+  const openBlockers = rows.filter((r) => r.otherStatus && r.otherStatus !== 'done')
+  const hasOpen = openBlockers.length > 0
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        <SectionLabel>Blocked by</SectionLabel>
+        {hasOpen && (
+          <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-200/90">
+            <AlertCircle className="h-2.5 w-2.5" />
+            {openBlockers.length} open
+          </span>
+        )}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {rows.length === 0 ? (
+          <span className="text-[12px] text-muted-foreground/60">
+            Not blocked by anything.
+          </span>
+        ) : (
+          rows.map((l) => {
+            const isOpen = l.otherStatus && l.otherStatus !== 'done'
+            return (
+              <span
+                key={`${l.fromId}-${l.toId}-${l.relation}`}
+                className={`group flex items-center gap-1.5 rounded-md border py-1 pl-2 pr-1 text-[11.5px] ${
+                  isOpen
+                    ? 'border-amber-500/30 bg-amber-500/10 text-amber-100/95'
+                    : 'border-border/60 bg-secondary/40 text-foreground/80'
+                }`}
+              >
+                <AlertCircle
+                  className={`h-3 w-3 ${
+                    isOpen ? 'text-amber-300/90' : 'text-muted-foreground/70'
+                  }`}
+                />
+                <span className="max-w-[220px] truncate">{l.otherTitle}</span>
+                <button
+                  type="button"
+                  onClick={() => onUnlink(l.fromId, l.toId)}
+                  aria-label={`Remove blocker ${l.otherTitle}`}
+                  className="flex h-4 w-4 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-secondary hover:text-foreground"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </span>
+            )
+          })
+        )}
+      </div>
+      <div className="mt-2">
+        <button
+          type="button"
+          onClick={onAdd}
+          className="flex items-center gap-1.5 rounded-md border border-dashed border-border/60 px-2 py-1 text-[11.5px] text-muted-foreground transition-colors duration-150 hover:border-border hover:bg-secondary/40 hover:text-foreground"
+        >
+          <Plus className="h-3 w-3" />
+          Add blocker
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function BlocksSection({
+  rows,
+  onUnlink,
+  onAdd
+}: {
+  rows: LinkedRow[]
+  onUnlink: (fromId: string, toId: string) => void
+  onAdd: () => void
+}) {
+  return (
+    <div>
+      <SectionLabel>Blocks</SectionLabel>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {rows.length === 0 ? (
+          <span className="text-[12px] text-muted-foreground/60">
+            Not blocking anything else.
+          </span>
+        ) : (
+          rows.map((l) => (
+            <span
+              key={`${l.fromId}-${l.toId}-${l.relation}`}
+              className="group flex items-center gap-1.5 rounded-md border border-border/60 bg-secondary/40 py-1 pl-2 pr-1 text-[11.5px] text-foreground/85"
+            >
+              <Link2 className="h-3 w-3 rotate-90 text-muted-foreground" />
+              <span className="max-w-[220px] truncate">{l.otherTitle}</span>
+              <button
+                type="button"
+                onClick={() => onUnlink(l.fromId, l.toId)}
+                aria-label={`Stop blocking ${l.otherTitle}`}
+                className="flex h-4 w-4 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))
+        )}
+      </div>
+      <div className="mt-2">
+        <button
+          type="button"
+          onClick={onAdd}
+          className="flex items-center gap-1.5 rounded-md border border-dashed border-border/60 px-2 py-1 text-[11.5px] text-muted-foreground transition-colors duration-150 hover:border-border hover:bg-secondary/40 hover:text-foreground"
+        >
+          <Plus className="h-3 w-3" />
+          Mark as blocking another item
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Revisit on                                                        */
+/* ------------------------------------------------------------------ */
+
+function formatRevisitLabel(iso: string): { text: string; overdue: boolean; tint: string } {
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  const target = new Date(iso + 'T00:00:00')
+  const diffDays = Math.round((target.getTime() - now.getTime()) / 86400000)
+  const abs = Math.abs(diffDays)
+  if (diffDays < 0) {
+    return {
+      text: abs === 1 ? 'Overdue by 1 day' : `Overdue by ${abs} days`,
+      overdue: true,
+      tint: 'text-rose-300/90'
+    }
+  }
+  if (diffDays === 0) return { text: 'Revisit today', overdue: false, tint: 'text-amber-300/90' }
+  if (diffDays === 1) return { text: 'Revisit tomorrow', overdue: false, tint: 'text-amber-200/90' }
+  if (diffDays < 7) return { text: `Revisit in ${diffDays} days`, overdue: false, tint: 'text-foreground/80' }
+  return {
+    text: `Revisit on ${target.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`,
+    overdue: false,
+    tint: 'text-muted-foreground'
+  }
+}
+
+function RevisitField({
+  value,
+  onCommit
+}: {
+  value: string | null
+  onCommit: (next: string | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value ?? '')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => setDraft(value ?? ''), [value])
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus()
+    }
+  }, [editing])
+
+  const commit = () => {
+    setEditing(false)
+    const trimmed = draft.trim()
+    onCommit(trimmed.length === 0 ? null : trimmed)
+  }
+  const cancel = () => {
+    setDraft(value ?? '')
+    setEditing(false)
+  }
+  const clearDate = () => {
+    setDraft('')
+    setEditing(false)
+    onCommit(null)
+  }
+
+  const label = value ? formatRevisitLabel(value) : null
+
+  return (
+    <div>
+      <SectionLabel>Revisit on</SectionLabel>
+      {editing ? (
+        <div className="mt-2 flex items-center gap-1.5">
+          <div className="relative flex-1">
+            <CalendarClock className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/70" />
+            <input
+              ref={inputRef}
+              type="date"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commit()
+                else if (e.key === 'Escape') cancel()
+              }}
+              className="w-full rounded-md border border-border/70 bg-secondary/30 py-1.5 pl-8 pr-2.5 text-[12.5px] text-foreground outline-none transition-colors focus:border-border focus:bg-secondary/50 [color-scheme:dark]"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={commit}
+            className="rounded-md border border-border/80 bg-foreground px-2.5 py-1.5 text-[11.5px] font-medium text-background transition-colors duration-150 hover:bg-foreground/90"
+          >
+            Save
+          </button>
+          {value && (
+            <button
+              type="button"
+              onClick={clearDate}
+              className="rounded-md border border-transparent px-2 py-1.5 text-[11.5px] text-muted-foreground transition-colors hover:border-border/70 hover:bg-secondary/60 hover:text-foreground"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="mt-2 flex w-full items-center gap-2 rounded-md border border-transparent px-2.5 py-1.5 text-left text-[12.5px] transition-colors duration-150 hover:border-border/60 hover:bg-secondary/30"
+        >
+          <CalendarClock
+            className={`h-3.5 w-3.5 ${label?.tint ?? 'text-muted-foreground/70'}`}
+          />
+          {label ? (
+            <span className={label.tint}>{label.text}</span>
+          ) : (
+            <span className="text-muted-foreground/70">
+              No revisit date — click to set.
+            </span>
+          )}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Snooze                                                            */
+/* ------------------------------------------------------------------ */
+
+function formatSnoozeLabel(iso: string): { text: string; active: boolean } {
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  const target = new Date(iso + 'T00:00:00')
+  const diffDays = Math.round((target.getTime() - now.getTime()) / 86400000)
+  if (diffDays <= 0) {
+    return {
+      text: `Snooze ended ${Math.abs(diffDays) === 0 ? 'today' : `${Math.abs(diffDays)}d ago`}`,
+      active: false
+    }
+  }
+  if (diffDays === 1) return { text: 'Snoozed until tomorrow', active: true }
+  if (diffDays < 7) return { text: `Snoozed for ${diffDays} days`, active: true }
+  return {
+    text: `Snoozed until ${target.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`,
+    active: true
+  }
+}
+
+function snoozePreset(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+function SnoozeField({
+  value,
+  onCommit
+}: {
+  value: string | null
+  onCommit: (next: string | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value ?? '')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => setDraft(value ?? ''), [value])
+  useEffect(() => {
+    if (editing) inputRef.current?.focus()
+  }, [editing])
+
+  const commit = () => {
+    setEditing(false)
+    const trimmed = draft.trim()
+    onCommit(trimmed.length === 0 ? null : trimmed)
+  }
+  const cancel = () => {
+    setDraft(value ?? '')
+    setEditing(false)
+  }
+  const snooze = (iso: string) => {
+    setDraft(iso)
+    setEditing(false)
+    onCommit(iso)
+  }
+
+  const label = value ? formatSnoozeLabel(value) : null
+
+  return (
+    <div>
+      <SectionLabel>Snooze</SectionLabel>
+      {editing ? (
+        <div className="mt-2 flex flex-col gap-2">
+          <div className="flex items-center gap-1.5">
+            <div className="relative flex-1">
+              <Moon className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/70" />
+              <input
+                ref={inputRef}
+                type="date"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commit()
+                  else if (e.key === 'Escape') cancel()
+                }}
+                className="w-full rounded-md border border-border/70 bg-secondary/30 py-1.5 pl-8 pr-2.5 text-[12.5px] text-foreground outline-none transition-colors focus:border-border focus:bg-secondary/50 [color-scheme:dark]"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={commit}
+              className="rounded-md border border-border/80 bg-foreground px-2.5 py-1.5 text-[11.5px] font-medium text-background transition-colors duration-150 hover:bg-foreground/90"
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={cancel}
+              className="rounded-md border border-transparent px-2 py-1.5 text-[11.5px] text-muted-foreground transition-colors hover:border-border/70 hover:bg-secondary/60 hover:text-foreground"
+            >
+              Cancel
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-[10.5px] text-muted-foreground/70 mr-1">Quick:</span>
+            <SnoozePresetButton label="Tomorrow" onClick={() => snooze(snoozePreset(1))} />
+            <SnoozePresetButton label="3 days" onClick={() => snooze(snoozePreset(3))} />
+            <SnoozePresetButton label="1 week" onClick={() => snooze(snoozePreset(7))} />
+            <SnoozePresetButton label="2 weeks" onClick={() => snooze(snoozePreset(14))} />
+            <SnoozePresetButton label="1 month" onClick={() => snooze(snoozePreset(30))} />
+          </div>
+        </div>
+      ) : (
+        <div className="mt-2 flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="flex flex-1 items-center gap-2 rounded-md border border-transparent px-2.5 py-1.5 text-left text-[12.5px] transition-colors duration-150 hover:border-border/60 hover:bg-secondary/30"
+          >
+            <Moon
+              className={`h-3.5 w-3.5 ${
+                label?.active
+                  ? 'text-sky-300/90'
+                  : 'text-muted-foreground/70'
+              }`}
+            />
+            {label ? (
+              <span className={label.active ? 'text-sky-300/90' : 'text-muted-foreground'}>
+                {label.text}
+              </span>
+            ) : (
+              <span className="text-muted-foreground/70">
+                Not snoozed — click to hide until a date.
+              </span>
+            )}
+          </button>
+          {value && (
+            <button
+              type="button"
+              onClick={() => {
+                setDraft('')
+                onCommit(null)
+              }}
+              className="rounded-md border border-transparent px-2 py-1.5 text-[11.5px] text-muted-foreground transition-colors hover:border-border/70 hover:bg-secondary/60 hover:text-foreground"
+              title="Unsnooze"
+            >
+              Unsnooze
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SnoozePresetButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-full border border-border/60 bg-secondary/40 px-2 py-0.5 text-[11px] text-foreground/80 transition-colors hover:border-border hover:bg-secondary/70 hover:text-foreground"
+    >
+      {label}
+    </button>
   )
 }
 

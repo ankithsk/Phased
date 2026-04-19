@@ -20,13 +20,23 @@ import {
   ArrowRight,
   Loader2,
   CornerDownLeft,
+  FolderPlus,
+  Plus,
+  Moon,
+  Sun,
+  LogOut,
+  SearchCode,
+  ChevronRight,
+  Layers,
 } from 'lucide-react'
 import { itemsRepo } from '@/repos/items'
 import { projectsRepo } from '@/repos/projects'
+import { phasesRepo } from '@/repos/phases'
+import { modulesRepo } from '@/repos/modules'
 import { supabase } from '@/lib/supabase'
 import { router } from '@/routes'
 import { useHotkey } from '@/hooks/useKeyboard'
-import type { Item, ItemType, Project } from '@/types/db'
+import type { Item, ItemType, Module, Phase, Project } from '@/types/db'
 
 const APPLE_EASE: [number, number, number, number] = [0.22, 1, 0.36, 1]
 
@@ -56,7 +66,19 @@ type ItemResult = {
   project: Project | null
 }
 
-type Row = NavResult | TagResult | ItemResult
+type CommandResult = {
+  kind: 'command'
+  id: string
+  label: string
+  sublabel?: string
+  Icon: typeof Search
+  /** Actions: close the palette first, then run. */
+  run: () => void
+  /** Keywords that should match this command even if they're not in the label. */
+  keywords?: string[]
+}
+
+type Row = NavResult | TagResult | ItemResult | CommandResult
 
 // ——— Helpers ————————————————————————————————————————————————
 const TYPE_ICON: Record<ItemType, typeof Sparkles> = {
@@ -100,6 +122,152 @@ function navigateTo(to: string) {
   void router.navigate(to)
 }
 
+// ——— Commands ————————————————————————————————————————————————
+// Static command registry for the ">" command mode. Each command either
+// navigates or dispatches a global event that a feature-level listener
+// picks up (e.g. opening the new-project dialog). Adding a new command here
+// is the whole integration point — no other wiring required.
+export interface ProjectContext {
+  project: Project
+  modules: Module[]
+  phases: Phase[]
+}
+
+function buildCommands(ctx: ProjectContext | null = null): CommandResult[] {
+  const dispatch = (name: string) =>
+    window.dispatchEvent(new CustomEvent(name))
+  const toggleTheme = () => {
+    const root = document.documentElement
+    const nowDark = !root.classList.contains('dark')
+    root.classList.toggle('dark', nowDark)
+    try {
+      localStorage.setItem('pcc.theme', nowDark ? 'dark' : 'light')
+    } catch {
+      /* ignore */
+    }
+    // Let any component using the `useTheme` hook re-sync its local state.
+    dispatch('pcc:theme-changed')
+  }
+  const isDark =
+    typeof document !== 'undefined' &&
+    document.documentElement.classList.contains('dark')
+  const base: CommandResult[] = [
+    {
+      kind: 'command',
+      id: 'cmd-new-project',
+      label: 'New project',
+      sublabel: 'Create a new project',
+      Icon: FolderPlus,
+      keywords: ['create', 'add', 'project'],
+      run: () => dispatch('pcc:new-project'),
+    },
+    {
+      kind: 'command',
+      id: 'cmd-quick-capture',
+      label: 'Quick capture',
+      sublabel: '⌘⇧N — capture an item anywhere',
+      Icon: Plus,
+      keywords: ['new', 'item', 'capture', 'add', 'idea', 'feature', 'bug'],
+      run: () => dispatch('pcc:quick-capture'),
+    },
+    {
+      kind: 'command',
+      id: 'cmd-go-dashboard',
+      label: 'Go to Dashboard',
+      sublabel: 'All projects',
+      Icon: LayoutDashboard,
+      keywords: ['home', 'projects', 'overview'],
+      run: () => navigateTo('/'),
+    },
+    {
+      kind: 'command',
+      id: 'cmd-go-digest',
+      label: 'Go to Digest',
+      sublabel: 'Recent activity this week',
+      Icon: Newspaper,
+      keywords: ['weekly', 'summary', 'activity', 'recent'],
+      run: () => navigateTo('/digest'),
+    },
+    {
+      kind: 'command',
+      id: 'cmd-go-search',
+      label: 'Open Search',
+      sublabel: 'Full-page search with filters',
+      Icon: SearchCode,
+      keywords: ['find', 'filter'],
+      run: () => navigateTo('/search'),
+    },
+    {
+      kind: 'command',
+      id: 'cmd-toggle-theme',
+      label: isDark ? 'Switch to light theme' : 'Switch to dark theme',
+      sublabel: 'Toggle appearance',
+      Icon: isDark ? Sun : Moon,
+      keywords: ['theme', 'dark', 'light', 'appearance', 'mode'],
+      run: toggleTheme,
+    },
+    {
+      kind: 'command',
+      id: 'cmd-sign-out',
+      label: 'Sign out',
+      Icon: LogOut,
+      keywords: ['logout', 'exit', 'log out'],
+      run: () => dispatch('pcc:sign-out'),
+    },
+  ]
+
+  if (ctx) {
+    // Jump to module (sets ?module= on the current project URL)
+    for (const m of [...ctx.modules].sort((a, b) => a.sort_order - b.sort_order)) {
+      base.push({
+        kind: 'command',
+        id: `cmd-jump-module-${m.id}`,
+        label: `Jump to module: ${m.name}`,
+        sublabel: ctx.project.name,
+        Icon: Layers,
+        keywords: ['module', 'jump', m.name],
+        run: () => navigateTo(`/p/${ctx.project.id}?module=${m.id}`),
+      })
+    }
+    // Jump to phase — sort by (module order, phase number)
+    const moduleOrder = new Map(ctx.modules.map((m) => [m.id, m.sort_order]))
+    const phasesSorted = [...ctx.phases].sort((a, b) => {
+      const ao = a.module_id ? moduleOrder.get(a.module_id) ?? 0 : -1
+      const bo = b.module_id ? moduleOrder.get(b.module_id) ?? 0 : -1
+      if (ao !== bo) return ao - bo
+      return a.number - b.number
+    })
+    const moduleNameById = new Map(ctx.modules.map((m) => [m.id, m.name]))
+    for (const ph of phasesSorted) {
+      const moduleName = ph.module_id ? moduleNameById.get(ph.module_id) : null
+      const sub = moduleName
+        ? `${ctx.project.name} · ${moduleName}`
+        : ctx.project.name
+      const moduleQuery = ph.module_id ? `?module=${ph.module_id}` : ''
+      base.push({
+        kind: 'command',
+        id: `cmd-jump-phase-${ph.id}`,
+        label: `Jump to phase: P${ph.number} — ${ph.name}`,
+        sublabel: sub,
+        Icon: ChevronRight,
+        keywords: ['phase', 'jump', ph.name, `p${ph.number}`],
+        run: () => navigateTo(`/p/${ctx.project.id}${moduleQuery}#phase=${ph.id}`),
+      })
+    }
+  }
+
+  return base
+}
+
+function matchesCommand(cmd: CommandResult, q: string): boolean {
+  if (!q) return true
+  const needle = q.toLowerCase()
+  if (cmd.label.toLowerCase().includes(needle)) return true
+  if (cmd.sublabel && cmd.sublabel.toLowerCase().includes(needle)) return true
+  if (cmd.keywords?.some((k) => k.toLowerCase().includes(needle))) return true
+  return false
+}
+
 // ——— Component ————————————————————————————————————————————————
 export function SearchPalette() {
   const [open, setOpen] = useState(false)
@@ -110,6 +278,7 @@ export function SearchPalette() {
   const [projects, setProjects] = useState<Project[]>([])
   const [phaseToProject, setPhaseToProject] = useState<Record<string, string>>({})
   const [recent, setRecent] = useState<RecentRow[]>([])
+  const [projectContext, setProjectContext] = useState<ProjectContext | null>(null)
   const [selectedIndex, setSelectedIndex] = useState(0)
 
   const inputRef = useRef<HTMLInputElement>(null)
@@ -211,6 +380,36 @@ export function SearchPalette() {
         setRecent(data as RecentRow[])
       })
 
+    // If the user is inside a project, load its phases/modules so the
+    // ">" command mode can offer fast jump-to-phase / jump-to-module.
+    // We read the pathname directly because the palette lives outside the
+    // Router (so useLocation isn't available here).
+    const match =
+      typeof window !== 'undefined'
+        ? window.location.pathname.match(/^\/p\/([^/?#]+)/)
+        : null
+    const projectIdFromUrl = match?.[1]
+    if (projectIdFromUrl) {
+      Promise.all([
+        projectsRepo.get(projectIdFromUrl),
+        modulesRepo.listByProject(projectIdFromUrl),
+        phasesRepo.listByProject(projectIdFromUrl),
+      ])
+        .then(([project, mods, phs]) => {
+          if (cancelled || !project) return
+          setProjectContext({
+            project,
+            modules: mods.filter((m) => !m.archived),
+            phases: phs,
+          })
+        })
+        .catch(() => {
+          if (!cancelled) setProjectContext(null)
+        })
+    } else {
+      setProjectContext(null)
+    }
+
     return () => {
       cancelled = true
     }
@@ -265,6 +464,14 @@ export function SearchPalette() {
 
   const rows: Row[] = useMemo(() => {
     const trimmed = query.trim()
+
+    // Command mode (type ">" to run an action)
+    if (trimmed.startsWith('>')) {
+      const q = trimmed.slice(1).trim()
+      const all = buildCommands(projectContext)
+      const filtered = all.filter((c) => matchesCommand(c, q))
+      return filtered
+    }
 
     // Tag mode
     if (trimmed.startsWith('#')) {
@@ -328,6 +535,9 @@ export function SearchPalette() {
           pinned: false,
           archived: false,
           tags: [],
+          revisit_at: null,
+          snoozed_until: null,
+          goal_id: null,
           created_at: '',
           updated_at: '',
         }
@@ -343,7 +553,7 @@ export function SearchPalette() {
       return { kind: 'item', item: it, project }
     })
     return results
-  }, [query, items, recent, phaseToProject, projectById])
+  }, [query, items, recent, phaseToProject, projectById, projectContext])
 
   // Group into sections for rendering with separators
   const sections = useMemo(() => {
@@ -354,6 +564,10 @@ export function SearchPalette() {
       const itemRows = rows.filter((r) => r.kind === 'item')
       if (navs.length) out.push({ title: 'Quick navigation', rows: navs })
       if (itemRows.length) out.push({ title: 'Recent', rows: itemRows })
+      return out
+    }
+    if (trimmed.startsWith('>')) {
+      out.push({ title: 'Commands', rows })
       return out
     }
     if (trimmed.startsWith('#')) {
@@ -425,6 +639,13 @@ export function SearchPalette() {
     if (row.kind === 'tag') {
       navigateTo(row.to)
       setOpen(false)
+      return
+    }
+    if (row.kind === 'command') {
+      // Close first so the UI can react (e.g. open another dialog) without
+      // focus-stealing conflicts between the palette and the dispatched target.
+      setOpen(false)
+      row.run()
       return
     }
     // item — fallback: if the phase→project lookup hasn't loaded yet,
@@ -547,7 +768,11 @@ export function SearchPalette() {
                       const selected = index === selectedIndex
                       return (
                         <RowView
-                          key={row.kind === 'item' ? row.item.id : row.id}
+                          key={
+                            row.kind === 'item'
+                              ? row.item.id
+                              : row.id
+                          }
                           row={row}
                           query={query}
                           selected={selected}
@@ -580,10 +805,16 @@ export function SearchPalette() {
                   <span>to select</span>
                 </FooterHint>
               </div>
-              <FooterHint>
-                <span>#</span>
-                <span>for tag search</span>
-              </FooterHint>
+              <div className="flex items-center gap-3">
+                <FooterHint>
+                  <span className="font-mono">&gt;</span>
+                  <span>for commands</span>
+                </FooterHint>
+                <FooterHint>
+                  <span className="font-mono">#</span>
+                  <span>for tag search</span>
+                </FooterHint>
+              </div>
             </div>
           </motion.div>
         </motion.div>
@@ -662,6 +893,33 @@ function RowView({
         <div className="flex flex-col min-w-0 flex-1">
           <span className="text-[13.5px] text-white/90 font-medium tracking-[-0.005em] truncate">
             {row.label}
+          </span>
+          {row.sublabel && (
+            <span className="text-[11.5px] text-white/40 truncate">
+              {row.sublabel}
+            </span>
+          )}
+        </div>
+        <TrailingArrow selected={selected} />
+      </RowShell>
+    )
+  }
+
+  if (row.kind === 'command') {
+    const Icon = row.Icon
+    return (
+      <RowShell
+        selected={selected}
+        index={index}
+        onHover={onHover}
+        onActivate={onActivate}
+      >
+        <IconTile tint="rgba(120, 170, 210, 0.12)" ring="rgba(120, 170, 210, 0.3)">
+          <Icon className="h-[14px] w-[14px]" style={{ color: '#b8d4ea' }} />
+        </IconTile>
+        <div className="flex flex-col min-w-0 flex-1">
+          <span className="text-[13.5px] text-white/90 font-medium tracking-[-0.005em] truncate">
+            {highlightMatches(row.label, query.replace(/^>/, '').trim())}
           </span>
           {row.sublabel && (
             <span className="text-[11.5px] text-white/40 truncate">

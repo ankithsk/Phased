@@ -1,9 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useHotkey } from '@/hooks/useKeyboard'
 import { QuickCaptureModal } from './QuickCaptureModal'
+import type { ItemType } from '@/types/db'
+
+interface QuickCaptureOptions {
+  projectId?: string
+  phaseId?: string
+  type?: ItemType
+}
 
 interface QuickCaptureContextValue {
-  open: (opts?: { projectId?: string; phaseId?: string }) => void
+  open: (opts?: QuickCaptureOptions) => void
   close: () => void
   isOpen: boolean
 }
@@ -14,10 +21,12 @@ export function QuickCaptureProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false)
   const [initialProjectId, setInitialProjectId] = useState<string | undefined>()
   const [initialPhaseId, setInitialPhaseId] = useState<string | undefined>()
+  const [initialType, setInitialType] = useState<ItemType | undefined>()
 
   const open: QuickCaptureContextValue['open'] = useCallback((opts) => {
     setInitialProjectId(opts?.projectId)
     setInitialPhaseId(opts?.phaseId)
+    setInitialType(opts?.type)
     setIsOpen(true)
   }, [])
   const close = useCallback(() => setIsOpen(false), [])
@@ -27,12 +36,18 @@ export function QuickCaptureProvider({ children }: { children: ReactNode }) {
     setIsOpen((v) => !v)
   })
 
-  // Global event from AppShell FAB
+  // Global event from AppShell FAB / Decisions page / command palette. The
+  // event can carry a `detail` object mirroring QuickCaptureOptions so the
+  // dispatcher can pre-select project + type (e.g. "New decision").
   useEffect(() => {
-    const handler = () => setIsOpen(true)
+    const handler = (e: Event) => {
+      const ev = e as CustomEvent<QuickCaptureOptions | undefined>
+      if (ev.detail) open(ev.detail)
+      else setIsOpen(true)
+    }
     window.addEventListener('pcc:quick-capture', handler as EventListener)
     return () => window.removeEventListener('pcc:quick-capture', handler as EventListener)
-  }, [])
+  }, [open])
 
   const value = useMemo<QuickCaptureContextValue>(
     () => ({ open, close, isOpen }),
@@ -47,6 +62,7 @@ export function QuickCaptureProvider({ children }: { children: ReactNode }) {
         onClose={close}
         initialProjectId={initialProjectId}
         initialPhaseId={initialPhaseId}
+        initialType={initialType}
       />
     </Ctx.Provider>
   )

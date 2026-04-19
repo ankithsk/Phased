@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { RouterProvider } from 'react-router-dom'
 import { router } from './routes'
 import { AuthGuard } from './features/auth/AuthGuard'
@@ -6,7 +6,18 @@ import { projectsRepo } from './repos/projects'
 import { useAuth } from './hooks/useAuth'
 import { QuickCaptureProvider } from './features/quick-capture/QuickCaptureProvider'
 import { SearchPalette } from './features/search/SearchPalette'
+import { CreateProjectDialog } from './features/dashboard/CreateProjectDialog'
 import { ErrorBoundary } from './components/ErrorBoundary'
+
+function GlobalCreateProject() {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    const handler = () => setOpen(true)
+    window.addEventListener('pcc:new-project', handler as EventListener)
+    return () => window.removeEventListener('pcc:new-project', handler as EventListener)
+  }, [])
+  return <CreateProjectDialog open={open} onClose={() => setOpen(false)} />
+}
 
 function AuthedShell() {
   const { session, signOut } = useAuth()
@@ -33,6 +44,7 @@ function AuthedShell() {
   return (
     <QuickCaptureProvider>
       <SearchPalette />
+      <GlobalCreateProject />
       <RouterProvider router={router} />
     </QuickCaptureProvider>
   )

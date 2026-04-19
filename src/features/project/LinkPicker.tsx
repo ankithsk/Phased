@@ -27,7 +27,8 @@ import type {
   Module,
   Phase,
   Item,
-  ItemType
+  ItemType,
+  LinkRelation
 } from '@/types/db'
 
 /* ------------------------------------------------------------------ */
@@ -63,6 +64,14 @@ export interface LinkPickerProps {
   excludeItemIds?: string[]
   onClose: () => void
   onLinked: () => void
+  /**
+   * 'links' (default) — generic bidirectional link.
+   * 'blocks' — from_item_id blocks the picked item (picked is blocked by from).
+   * 'blocked-by' — the picked item blocks from_item_id (from is blocked by picked).
+   * The picker flips direction internally so the activity log and DB row end
+   * up pointing the right way.
+   */
+  relation?: LinkRelation | 'blocked-by'
 }
 
 type StepKey = 'project' | 'module' | 'phase' | 'item'
@@ -82,7 +91,8 @@ export function LinkPicker({
   fromItemId,
   excludeItemIds = [],
   onClose,
-  onLinked
+  onLinked,
+  relation = 'links'
 }: LinkPickerProps) {
   const [step, setStep] = useState<StepKey>('project')
   const [direction, setDirection] = useState<1 | -1>(1)
@@ -248,7 +258,13 @@ export function LinkPicker({
     setLinking(true)
     setError(null)
     try {
-      await linksRepo.link(fromItemId, it.id)
+      // Map the caller-facing relation to the DB-facing (from, to, relation).
+      // For "blocked-by", flip the direction: picked item blocks fromItemId.
+      if (relation === 'blocked-by') {
+        await linksRepo.link(it.id, fromItemId, 'blocks')
+      } else {
+        await linksRepo.link(fromItemId, it.id, relation)
+      }
       // Best-effort activity log (non-critical)
       if (sel.project) {
         try {
@@ -340,7 +356,13 @@ export function LinkPicker({
               transition={{ duration: 0.2, ease: EASE }}
               role="dialog"
               aria-modal="true"
-              aria-label="Link to another item"
+              aria-label={
+                relation === 'blocks'
+                  ? 'Mark another item as blocked by this one'
+                  : relation === 'blocked-by'
+                  ? 'Pick an item that blocks this one'
+                  : 'Link to another item'
+              }
               className="flex w-full max-w-[560px] flex-col overflow-hidden rounded-2xl border border-border/70 bg-card/90 shadow-[0_30px_60px_-12px_rgba(0,0,0,0.6),0_0_0_1px_rgba(255,255,255,0.02)_inset] backdrop-blur-2xl"
               style={{ maxHeight: 'min(640px, 88vh)' }}
               onClick={(e) => e.stopPropagation()}
@@ -349,7 +371,11 @@ export function LinkPicker({
               <div className="flex flex-none items-center justify-between border-b border-border/70 px-5 py-3">
                 <div className="flex min-w-0 flex-col">
                   <span className="text-[10.5px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
-                    Link to another item
+                    {relation === 'blocks'
+                      ? 'Mark blocked item'
+                      : relation === 'blocked-by'
+                      ? 'Pick blocker'
+                      : 'Link to another item'}
                   </span>
                   <Breadcrumb
                     breadcrumb={breadcrumb}

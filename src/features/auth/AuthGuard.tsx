@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useAuth } from '@/hooks/useAuth'
-import { LoginPage } from './LoginPage'
+import { SecurityGate } from './SecurityGate'
 
 export function AuthGuard({ children }: { children: ReactNode }) {
   const { session, loading } = useAuth()
@@ -9,6 +9,6 @@ export function AuthGuard({ children }: { children: ReactNode }) {
       <div className="h-full grid place-items-center text-muted-foreground text-sm">Loading…</div>
     )
   }
-  if (!session) return <LoginPage />
+  if (!session) return <SecurityGate />
   return <>{children}</>
 }

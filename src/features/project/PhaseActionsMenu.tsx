@@ -76,26 +76,26 @@ export function PhaseActionsMenu({ phase, projectId }: PhaseActionsMenuProps) {
     }
   }
 
+  async function fetchNextPlannedPhaseId(): Promise<string | null> {
+    let q = supabase
+      .from('phases')
+      .select('id')
+      .eq('project_id', projectId)
+      .eq('status', 'planned')
+      .order('number', { ascending: true })
+      .limit(1)
+    if (phase.module_id === null) q = q.is('module_id', null)
+    else q = q.eq('module_id', phase.module_id)
+    const { data } = await q
+    return data && data[0] ? data[0].id : null
+  }
+
   async function openComplete() {
     setOpen(false)
     try {
       const items = await itemsRepo.listByPhase(phase.id, false)
       const deferred = items.filter((i) => i.status === 'deferred')
-      // Look up the next planned phase (same scope)
-      let next: string | null = null
-      if (deferred.length > 0) {
-        let q = supabase
-          .from('phases')
-          .select('id')
-          .eq('project_id', projectId)
-          .eq('status', 'planned')
-          .order('number', { ascending: true })
-          .limit(1)
-        if (phase.module_id === null) q = q.is('module_id', null)
-        else q = q.eq('module_id', phase.module_id)
-        const { data } = await q
-        next = data && data[0] ? data[0].id : null
-      }
+      const next = deferred.length > 0 ? await fetchNextPlannedPhaseId() : null
       setDialog({ kind: 'complete', deferred, nextPhaseId: next })
     } catch (err) {
       console.error(err)
@@ -105,10 +105,16 @@ export function PhaseActionsMenu({ phase, projectId }: PhaseActionsMenuProps) {
   async function doComplete(moveDeferred: boolean) {
     try {
       if (dialog.kind !== 'complete') return
-      if (moveDeferred && dialog.nextPhaseId) {
-        await Promise.all(
-          dialog.deferred.map((i) => itemsRepo.moveToPhase(i.id, dialog.nextPhaseId!))
-        )
+      if (moveDeferred && dialog.deferred.length > 0) {
+        // Re-query the next planned phase at submit time so a stale value
+        // captured at dialog-open (another tab or a sibling action could
+        // have shifted phases since) doesn't send items to the wrong phase.
+        const nextId = await fetchNextPlannedPhaseId()
+        if (nextId) {
+          await Promise.all(
+            dialog.deferred.map((i) => itemsRepo.moveToPhase(i.id, nextId))
+          )
+        }
       }
       await phasesRepo.complete(phase.id)
       await activityRepo.log(projectId, 'phase_completed', {

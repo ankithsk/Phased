@@ -121,11 +121,15 @@ export function ContextResumeBanner(props: ContextResumeBannerProps) {
   const hasContent = buckets.length > 0
 
   // Mark visited once after first successful render with content.
+  // `dismissed` is in the dep list so that dismissing before the 3s timer
+  // fires will run the cleanup and cancel the scheduled mark — otherwise
+  // last_visited_at overwrites and next visit loses the "since last visit"
+  // context entirely.
   useEffect(() => {
     if (markedRef.current) return
     if (!hasContent || dismissed) return
-    markedRef.current = true
     const t = window.setTimeout(() => {
+      markedRef.current = true
       onMarkVisited()
     }, 3000)
     return () => window.clearTimeout(t)

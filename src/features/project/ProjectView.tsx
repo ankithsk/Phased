@@ -1,8 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams
+} from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Clock, Settings2, Archive } from 'lucide-react'
+import { Clock, Settings2, Archive, GitBranch, Moon, Target } from 'lucide-react'
 import { useProject } from '@/hooks/useProject'
+import { useGoals } from '@/hooks/useGoals'
 import { projectsRepo } from '@/repos/projects'
 import { ModuleSidebar } from './ModuleSidebar'
 import { PhaseSection } from './PhaseSection'
@@ -20,11 +27,84 @@ const PROJECT_STATUS_CHIP: Record<ProjectStatus, string> = {
 
 export function ProjectView() {
   const { projectId } = useParams<{ projectId: string }>()
-  const { project, modules, phases, loading } = useProject(projectId)
+  const { project, modules, phases, phaseItemCounts, loading } = useProject(projectId)
+  const { goals } = useGoals(projectId)
+  const goalNames = useMemo(() => {
+    const m: Record<string, string> = {}
+    for (const g of goals) m[g.id] = g.name
+    return m
+  }, [goals])
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null)
+  // Selected module lives in the URL so refresh + back/forward preserve it.
+  // Treat "all" (or missing) as "All modules" → null.
+  const moduleParam = searchParams.get('module')
+  const selectedModuleId =
+    !moduleParam || moduleParam === 'all' ? null : moduleParam
+
+  const setSelectedModuleId = useCallback(
+    (id: string | null) => {
+      const next = new URLSearchParams(searchParams)
+      if (id === null) next.delete('module')
+      else next.set('module', id)
+      setSearchParams(next, { replace: true })
+    },
+    [searchParams, setSearchParams]
+  )
+
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
   const [showArchived, setShowArchived] = useState(false)
+  const [showSnoozed, setShowSnoozed] = useState(false)
+  // Phase id requested by a jump-to-phase (from the command palette). When
+  // set, the matching PhaseSection opens + scrolls into view; cleared once
+  // applied so subsequent clicks don't force-reopen.
+  const [jumpPhaseId, setJumpPhaseId] = useState<string | null>(null)
+
+  // If the URL carries a ?module= that doesn't exist in this project's
+  // modules (stale bookmark, deleted module, different project), drop it
+  // rather than silently showing an empty "no phases" pane.
+  useEffect(() => {
+    if (!selectedModuleId) return
+    if (loading) return
+    if (modules.length === 0) return
+    if (modules.some((m) => m.id === selectedModuleId)) return
+    setSelectedModuleId(null)
+  }, [loading, modules, selectedModuleId, setSelectedModuleId])
+
+  // Open the item detail panel when landing on /p/:id#item=<uuid>, or
+  // trigger a phase jump when landing on /p/:id#phase=<uuid>. Both hashes
+  // are consumed once (stripped from the URL) so subsequent renders don't
+  // re-trigger after the user closes the panel or scrolls away.
+  useEffect(() => {
+    const hash = location.hash
+    if (hash.startsWith('#item=')) {
+      const itemId = hash.slice('#item='.length)
+      if (itemId) setSelectedItemId(itemId)
+    } else if (hash.startsWith('#phase=')) {
+      const phaseId = hash.slice('#phase='.length)
+      if (phaseId) setJumpPhaseId(phaseId)
+    } else {
+      return
+    }
+    navigate({ pathname: location.pathname, search: location.search }, { replace: true })
+  }, [location.hash, location.pathname, location.search, navigate])
+
+  // When a phase jump target is set, scroll the matching section into view
+  // on the next paint. The open/expand is handled by PhaseSection via the
+  // forceExpandedId prop below.
+  useEffect(() => {
+    if (!jumpPhaseId) return
+    const id = jumpPhaseId
+    // Let the section render first (it may need to expand), then scroll.
+    const t = window.setTimeout(() => {
+      const el = document.getElementById(`phase-${id}`)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      setJumpPhaseId(null)
+    }, 120)
+    return () => window.clearTimeout(t)
+  }, [jumpPhaseId])
 
   const modulesEnabled = !!project?.modules_enabled
 
@@ -141,7 +221,10 @@ export function ProjectView() {
             <h2 className="text-[15px] font-semibold tracking-tight text-foreground">
               Phases
             </h2>
-            <ArchivedToggle value={showArchived} onChange={setShowArchived} />
+            <div className="flex items-center gap-1.5">
+              <SnoozedToggle value={showSnoozed} onChange={setShowSnoozed} />
+              <ArchivedToggle value={showArchived} onChange={setShowArchived} />
+            </div>
           </div>
 
           {/* Phase sections */}
@@ -154,6 +237,10 @@ export function ProjectView() {
                 projectId={project.id}
                 onItemClick={setSelectedItemId}
                 showArchived={showArchived}
+                showSnoozed={showSnoozed}
+                phaseItemCounts={phaseItemCounts}
+                forceExpandedId={jumpPhaseId}
+                goalNames={goalNames}
               />
             ) : flatPhases.length === 0 ? (
               <EmptyPhasesState />
@@ -166,6 +253,10 @@ export function ProjectView() {
                   defaultExpanded={phase.is_current}
                   onItemClick={setSelectedItemId}
                   showArchived={showArchived}
+                  showSnoozed={showSnoozed}
+                  totalCount={phaseItemCounts[phase.id] ?? 0}
+                  forceExpandedId={jumpPhaseId}
+                  goalNames={goalNames}
                 />
               ))
             )}
@@ -227,6 +318,16 @@ function ProjectHeader({ name, description, status, progress, accent }: ProjectH
           )}
         </div>
         <div className="flex flex-none items-center gap-1.5">
+          <IconLink
+            to="./goals"
+            label="Goals"
+            icon={<Target className="h-4 w-4" />}
+          />
+          <IconLink
+            to="./decisions"
+            label="Decisions log"
+            icon={<GitBranch className="h-4 w-4" />}
+          />
           <IconLink to="./timeline" label="Timeline" icon={<Clock className="h-4 w-4" />} />
           <IconLink to="./settings" label="Settings" icon={<Settings2 className="h-4 w-4" />} />
         </div>
@@ -295,6 +396,23 @@ function ArchivedToggle({ value, onChange }: ArchivedToggleProps) {
   )
 }
 
+function SnoozedToggle({ value, onChange }: ArchivedToggleProps) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!value)}
+      className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11.5px] font-medium transition-colors ${
+        value
+          ? 'border-foreground/20 bg-foreground/5 text-foreground'
+          : 'border-border/60 bg-card/40 text-muted-foreground hover:border-border hover:text-foreground'
+      }`}
+    >
+      <Moon className="h-3.5 w-3.5" />
+      Show snoozed
+    </button>
+  )
+}
+
 interface GroupedPhasesProps {
   grouped: Map<string | null, Phase[]>
   moduleLookup: Map<string, Module>
@@ -302,6 +420,10 @@ interface GroupedPhasesProps {
   projectId: string
   onItemClick: (id: string) => void
   showArchived: boolean
+  showSnoozed: boolean
+  phaseItemCounts: Record<string, number>
+  forceExpandedId: string | null
+  goalNames: Record<string, string>
 }
 
 function GroupedPhases({
@@ -310,7 +432,11 @@ function GroupedPhases({
   modules,
   projectId,
   onItemClick,
-  showArchived
+  showArchived,
+  showSnoozed,
+  phaseItemCounts,
+  forceExpandedId,
+  goalNames
 }: GroupedPhasesProps) {
   // Order: iterate modules by sort_order; then any phases with null module_id last.
   const sortedModules = [...modules].sort((a, b) => a.sort_order - b.sort_order)
@@ -352,6 +478,10 @@ function GroupedPhases({
                 defaultExpanded={phase.is_current}
                 onItemClick={onItemClick}
                 showArchived={showArchived}
+                showSnoozed={showSnoozed}
+                totalCount={phaseItemCounts[phase.id] ?? 0}
+                forceExpandedId={forceExpandedId}
+                goalNames={goalNames}
               />
             ))}
           </div>

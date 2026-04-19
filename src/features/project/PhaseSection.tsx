@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronRight, Calendar } from 'lucide-react'
 import { useItemsByPhase } from '@/hooks/useItems'
@@ -12,6 +12,20 @@ export interface PhaseSectionProps {
   defaultExpanded: boolean
   onItemClick: (id: string) => void
   showArchived: boolean
+  showSnoozed: boolean
+  /**
+   * Pre-computed item count for this phase. Used for the collapsed-header
+   * badge so we don't need to load every phase's items up-front just to
+   * render a number. Falls back to 0 if not provided.
+   */
+  totalCount?: number
+  /**
+   * When set to this phase's id (e.g. via a command palette jump), force
+   * this section to expand so scroll-into-view lands on open content.
+   */
+  forceExpandedId?: string | null
+  /** Goal id → name, used to render the goal chip on rows. */
+  goalNames?: Record<string, string>
 }
 
 const STATUS_CHIP: Record<PhaseStatus, string> = {
@@ -42,29 +56,68 @@ function formatRelativeDate(iso: string | null): string | null {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
+function isSnoozed(snoozedUntil: string | null, todayIso: string): boolean {
+  return !!snoozedUntil && snoozedUntil > todayIso
+}
+
 export function PhaseSection({
   phase,
   projectId,
   defaultExpanded,
   onItemClick,
-  showArchived
+  showArchived,
+  showSnoozed,
+  totalCount = 0,
+  forceExpandedId,
+  goalNames
 }: PhaseSectionProps) {
   const [expanded, setExpanded] = useState(defaultExpanded)
-  const { items, loading } = useItemsByPhase(phase.id, showArchived)
+  // Track whether this section has ever been opened. Once opened we keep the
+  // realtime subscription alive so collapse/re-expand doesn't incur another
+  // round-trip, but we never subscribe to phases the user hasn't touched.
+  const [hasBeenExpanded, setHasBeenExpanded] = useState(defaultExpanded)
+  const { items, loading } = useItemsByPhase(phase.id, hasBeenExpanded)
 
-  const visibleItems = showArchived ? items : items.filter((i) => !i.archived)
+  // If a command palette jump targets this phase, open it.
+  useEffect(() => {
+    if (forceExpandedId && forceExpandedId === phase.id) {
+      setExpanded(true)
+      setHasBeenExpanded(true)
+    }
+  }, [forceExpandedId, phase.id])
+
+  const todayIso = new Date().toISOString().slice(0, 10)
+  const visibleItems = items.filter((i) => {
+    if (!showArchived && i.archived) return false
+    if (!showSnoozed && isSnoozed(i.snoozed_until, todayIso)) return false
+    return true
+  })
   const relDate = formatRelativeDate(phase.target_date)
+  // Use loaded items once we have them; otherwise fall back to the pre-fetched
+  // count so the collapsed badge still reflects reality.
+  const badgeCount = hasBeenExpanded ? visibleItems.length : totalCount
+
+  function toggle() {
+    setExpanded((v) => {
+      const next = !v
+      if (next) setHasBeenExpanded(true)
+      return next
+    })
+  }
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-border/70 bg-card/40 backdrop-blur-sm">
+    <section
+      id={`phase-${phase.id}`}
+      className="overflow-hidden rounded-2xl border border-border/70 bg-card/40 backdrop-blur-sm scroll-mt-20"
+    >
       <div
         role="button"
         tabIndex={0}
-        onClick={() => setExpanded((v) => !v)}
+        onClick={toggle}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
-            setExpanded((v) => !v)
+            toggle()
           }
         }}
         className="sticky top-0 z-10 flex w-full cursor-pointer items-center gap-3 border-b border-border/60 bg-card/70 px-4 py-3 text-left backdrop-blur-xl transition-colors hover:bg-card/90"
@@ -93,7 +146,7 @@ export function PhaseSection({
             {STATUS_LABEL[phase.status]}
           </span>
           <span className="rounded-md border border-border/60 bg-secondary/40 px-2 py-0.5 text-[10.5px] tabular-nums text-muted-foreground">
-            {visibleItems.length} {visibleItems.length === 1 ? 'item' : 'items'}
+            {badgeCount} {badgeCount === 1 ? 'item' : 'items'}
           </span>
           {relDate && (
             <span className="hidden items-center gap-1 text-[11px] text-muted-foreground/80 sm:inline-flex">
@@ -134,7 +187,12 @@ export function PhaseSection({
               ) : (
                 <div className="flex flex-col gap-1">
                   {visibleItems.map((item) => (
-                    <ItemRow key={item.id} item={item} onClick={() => onItemClick(item.id)} />
+                    <ItemRow
+                      key={item.id}
+                      item={item}
+                      onClick={() => onItemClick(item.id)}
+                      goalNames={goalNames}
+                    />
                   ))}
                 </div>
               )}

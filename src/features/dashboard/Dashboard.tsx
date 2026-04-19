@@ -3,6 +3,10 @@ import { FolderKanban, Plus, Sparkles } from 'lucide-react'
 import { useProjects } from '@/hooks/useProjects'
 import { ProjectCard } from './ProjectCard'
 
+function openNewProject() {
+  window.dispatchEvent(new CustomEvent('pcc:new-project'))
+}
+
 function SkeletonCard() {
   return (
     <div className="relative h-[216px] overflow-hidden rounded-[var(--radius)] border border-border/70 bg-card">
@@ -27,7 +31,7 @@ function SkeletonCard() {
   )
 }
 
-function EmptyState() {
+function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="col-span-full flex flex-col items-center justify-center rounded-[var(--radius)] border border-dashed border-border/70 bg-card/40 px-6 py-20 text-center">
       <div className="relative mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-border/70 bg-secondary/40">
@@ -42,9 +46,7 @@ function EmptyState() {
       </p>
       <button
         type="button"
-        onClick={() => {
-          /* TODO: wire up project creation */
-        }}
+        onClick={onCreate}
         className="group mt-6 inline-flex items-center gap-2 rounded-full border border-border/80 bg-secondary/60 px-4 py-2 text-[12.5px] font-medium tracking-tight text-foreground transition-all duration-300 hover:border-border hover:bg-secondary"
       >
         <Plus className="h-3.5 w-3.5 transition-transform duration-300 group-hover:rotate-90" strokeWidth={2.25} />
@@ -106,9 +108,7 @@ export function Dashboard() {
 
           <button
             type="button"
-            onClick={() => {
-              /* TODO: wire up project creation */
-            }}
+            onClick={() => openNewProject()}
             className="group inline-flex h-9 items-center gap-2 self-start rounded-full border border-border/80 bg-foreground px-4 text-[12.5px] font-semibold tracking-tight text-background shadow-[0_1px_0_0_rgba(255,255,255,0.08)_inset,0_4px_14px_-4px_rgba(0,0,0,0.4)] transition-all duration-300 hover:bg-foreground/90 sm:self-auto"
           >
             <Plus className="h-3.5 w-3.5 transition-transform duration-300 group-hover:rotate-90" strokeWidth={2.5} />
@@ -121,7 +121,7 @@ export function Dashboard() {
           {loading ? (
             Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)
           ) : projects.length === 0 ? (
-            <EmptyState />
+            <EmptyState onCreate={() => openNewProject()} />
           ) : (
             projects.map((project, i) => (
               <motion.div
