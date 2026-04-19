@@ -464,7 +464,7 @@ function GoalDialog({
     <AnimatePresence>
       <motion.div
         key="gd-overlay"
-        className="fixed inset-0 z-[80] flex items-center justify-center p-4"
+        className="fixed inset-0 z-[80] flex items-end justify-center p-0 sm:items-center sm:p-6"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -479,11 +479,11 @@ function GoalDialog({
           role="dialog"
           aria-modal="true"
           onSubmit={handleSubmit}
-          initial={{ opacity: 0, scale: 0.96, y: 8 }}
+          initial={{ opacity: 0, scale: 0.96, y: 16 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.97, y: 4 }}
-          transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-          className="relative w-full max-w-[460px] overflow-hidden rounded-2xl border border-border/70 bg-popover/95 p-5 shadow-[0_30px_60px_-20px_rgba(0,0,0,0.75)] backdrop-blur-xl"
+          exit={{ opacity: 0, scale: 0.97, y: 8 }}
+          transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+          className="relative w-full overflow-hidden rounded-t-[22px] border border-border/70 bg-popover/95 p-5 shadow-[0_30px_60px_-20px_rgba(0,0,0,0.75)] backdrop-blur-xl sm:max-w-[460px] sm:rounded-2xl"
         >
           <div className="mb-4 flex items-center gap-2.5">
             <div
@@ -566,27 +566,41 @@ function GoalDialog({
 
 function EmptyState({ accent, onCreate }: { accent: string; onCreate: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/60 bg-card/30 px-6 py-20 text-center">
-      <div
-        className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-border/70 bg-secondary/40"
-        style={{ boxShadow: `0 0 0 4px ${accent}14` }}
+    <div className="relative flex flex-col items-center justify-center overflow-hidden rounded-2xl border border-dashed border-border/60 bg-card/30 px-6 py-24 text-center">
+      <motion.div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        animate={{ opacity: [0.3, 0.55, 0.3] }}
+        transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
+        style={{
+          background: `radial-gradient(circle at 50% 50%, ${accent}14 0%, transparent 55%)`
+        }}
+      />
+      <motion.div
+        animate={{ y: [0, -3, 0] }}
+        transition={{ duration: 4.2, repeat: Infinity, ease: 'easeInOut' }}
+        className="relative mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-border/70 bg-secondary/40"
+        style={{
+          boxShadow: `0 0 0 4px ${accent}0f, 0 20px 44px -22px ${accent}aa, inset 0 1px 0 rgba(255,255,255,0.04)`
+        }}
       >
-        <Target className="h-6 w-6 text-muted-foreground" strokeWidth={1.75} />
-      </div>
-      <h2 className="text-[15px] font-semibold tracking-tight text-foreground">
-        No goals yet
+        <Target className="h-6 w-6" style={{ color: accent }} strokeWidth={1.75} />
+      </motion.div>
+      <h2 className="relative text-[15px] font-semibold tracking-tight text-foreground">
+        Aim at something
       </h2>
-      <p className="mt-1.5 max-w-md text-[13px] leading-5 text-muted-foreground">
+      <p className="relative mt-1.5 max-w-md text-[13px] leading-5 text-muted-foreground">
         Goals let you tag items to an outcome — so you can see "what am I doing to
         move X forward" across phases and modules.
       </p>
       <button
         type="button"
         onClick={onCreate}
-        className="mt-6 inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-secondary/60 px-4 py-2 text-[12.5px] font-medium tracking-tight text-foreground transition-colors hover:bg-secondary"
+        className="group relative mt-6 inline-flex items-center gap-2 rounded-full border border-border/80 bg-foreground px-4 py-2 text-[12.5px] font-semibold tracking-tight text-background transition-all duration-300 hover:bg-foreground/90"
+        style={{ boxShadow: '0 1px 0 0 rgba(255,255,255,0.08) inset, 0 8px 22px -8px rgba(0,0,0,0.5)' }}
       >
-        <Plus className="h-3.5 w-3.5" />
-        New goal
+        <Plus className="h-3.5 w-3.5 transition-transform duration-300 group-hover:rotate-90" strokeWidth={2.5} />
+        Set your first goal
       </button>
     </div>
   )

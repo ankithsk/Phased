@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronRight, Calendar } from 'lucide-react'
+import { ChevronRight, Calendar, Sparkles } from 'lucide-react'
 import { useItemsByPhase } from '@/hooks/useItems'
 import { ItemRow } from './ItemRow'
 import { PhaseActionsMenu } from './PhaseActionsMenu'
@@ -105,11 +105,28 @@ export function PhaseSection({
     })
   }
 
+  const isActive = phase.status === 'active'
+  const isCompleted = phase.status === 'completed'
+
   return (
     <section
       id={`phase-${phase.id}`}
-      className="overflow-hidden rounded-2xl border border-border/70 bg-card/40 backdrop-blur-sm scroll-mt-20"
+      className={`relative overflow-hidden rounded-2xl border backdrop-blur-sm scroll-mt-20 transition-colors duration-300 ${
+        isActive
+          ? 'border-foreground/15 bg-card/55 shadow-[0_0_0_1px_rgba(255,255,255,0.04)_inset,0_14px_36px_-20px_rgba(0,0,0,0.55)]'
+          : 'border-border/70 bg-card/40'
+      }`}
     >
+      {isActive && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              'radial-gradient(120% 60% at 0% 0%, rgba(255,255,255,0.045) 0%, transparent 55%)'
+          }}
+        />
+      )}
       <div
         role="button"
         tabIndex={0}
@@ -120,7 +137,11 @@ export function PhaseSection({
             toggle()
           }
         }}
-        className="sticky top-0 z-10 flex w-full cursor-pointer items-center gap-3 border-b border-border/60 bg-card/70 px-4 py-3 text-left backdrop-blur-xl transition-colors hover:bg-card/90"
+        className={`relative sticky top-0 z-10 flex w-full cursor-pointer items-center gap-3 border-b px-4 py-3 text-left backdrop-blur-xl transition-colors ${
+          isActive
+            ? 'border-foreground/15 bg-card/80 hover:bg-card'
+            : 'border-border/60 bg-card/70 hover:bg-card/90'
+        }`}
       >
         <motion.span
           animate={{ rotate: expanded ? 90 : 0 }}
@@ -130,11 +151,23 @@ export function PhaseSection({
           <ChevronRight className="h-4 w-4" />
         </motion.span>
 
-        <div className="flex min-w-0 flex-1 items-baseline gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          {isActive && (
+            <motion.span
+              aria-hidden
+              animate={{ opacity: [0.5, 1, 0.5], scale: [1, 1.18, 1] }}
+              transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
+              className="flex h-1.5 w-1.5 flex-none rounded-full bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,0.18)]"
+            />
+          )}
           <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/80">
             Phase {phase.number}
           </span>
-          <span className="truncate text-[14px] font-semibold text-foreground">
+          <span
+            className={`truncate text-[14px] font-semibold ${
+              isCompleted ? 'text-muted-foreground/80' : 'text-foreground'
+            }`}
+          >
             {phase.name}
           </span>
         </div>
@@ -174,14 +207,23 @@ export function PhaseSection({
                   Loading items…
                 </div>
               ) : visibleItems.length === 0 ? (
-                <div className="flex flex-col items-center justify-center gap-1 px-6 py-10 text-center">
-                  <span className="text-[13px] text-muted-foreground">No items.</span>
+                <div className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+                  <motion.div
+                    animate={{ y: [0, -2, 0], opacity: [0.45, 0.7, 0.45] }}
+                    transition={{ duration: 3.6, repeat: Infinity, ease: 'easeInOut' }}
+                    className="flex h-8 w-8 items-center justify-center rounded-xl border border-border/60 bg-secondary/40 text-muted-foreground"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  </motion.div>
+                  <span className="text-[13px] font-medium text-foreground/80">
+                    {isCompleted ? 'Wrapped up.' : 'Nothing here yet.'}
+                  </span>
                   <span className="text-[11.5px] text-muted-foreground/70">
                     Press{' '}
                     <kbd className="mx-0.5 inline-flex rounded border border-border/70 bg-secondary/60 px-1.5 py-0.5 font-mono text-[10px]">
                       ⌘⇧N
                     </kbd>{' '}
-                    to capture.
+                    to capture an idea.
                   </span>
                 </div>
               ) : (

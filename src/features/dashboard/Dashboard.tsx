@@ -33,24 +33,49 @@ function SkeletonCard() {
 
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
-    <div className="col-span-full flex flex-col items-center justify-center rounded-[var(--radius)] border border-dashed border-border/70 bg-card/40 px-6 py-20 text-center">
-      <div className="relative mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-border/70 bg-secondary/40">
-        <FolderKanban className="h-6 w-6 text-muted-foreground" strokeWidth={1.75} />
-        <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/5 to-transparent" aria-hidden />
-      </div>
-      <h2 className="text-[15px] font-semibold tracking-tight text-foreground">
-        No projects yet
+    <div className="col-span-full flex flex-col items-center justify-center overflow-hidden rounded-[var(--radius)] border border-dashed border-border/70 bg-card/40 px-6 py-24 text-center">
+      <motion.div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        animate={{ opacity: [0.4, 0.7, 0.4] }}
+        transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
+        style={{
+          background: 'radial-gradient(circle at 50% 50%, rgba(99,102,241,0.08) 0%, transparent 50%)'
+        }}
+      />
+      <motion.div
+        className="relative mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-border/70 bg-secondary/40"
+        animate={{ y: [0, -4, 0] }}
+        transition={{ duration: 4.5, repeat: Infinity, ease: 'easeInOut' }}
+        style={{
+          boxShadow:
+            '0 0 0 4px rgba(99,102,241,0.06), 0 18px 38px -18px rgba(99,102,241,0.55), inset 0 1px 0 rgba(255,255,255,0.04)'
+        }}
+      >
+        <FolderKanban className="h-7 w-7 text-muted-foreground" strokeWidth={1.6} />
+        <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/[0.06] to-transparent" aria-hidden />
+        <motion.div
+          aria-hidden
+          className="absolute -inset-2 rounded-3xl"
+          animate={{ opacity: [0.2, 0.5, 0.2] }}
+          transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+          style={{ background: 'radial-gradient(circle at center, rgba(99,102,241,0.22) 0%, transparent 60%)', filter: 'blur(14px)' }}
+        />
+      </motion.div>
+      <h2 className="relative text-[16px] font-semibold tracking-tight text-foreground">
+        A blank canvas
       </h2>
-      <p className="mt-1.5 max-w-sm text-[13px] leading-5 text-muted-foreground">
-        Create your first project to start tracking phases, items, and progress in one calm, focused place.
+      <p className="relative mt-1.5 max-w-sm text-[13px] leading-5 text-muted-foreground">
+        Start your first project — phases, items, decisions, everything in one calm, focused place.
       </p>
       <button
         type="button"
         onClick={onCreate}
-        className="group mt-6 inline-flex items-center gap-2 rounded-full border border-border/80 bg-secondary/60 px-4 py-2 text-[12.5px] font-medium tracking-tight text-foreground transition-all duration-300 hover:border-border hover:bg-secondary"
+        className="group relative mt-6 inline-flex items-center gap-2 rounded-full border border-border/80 bg-foreground px-4 py-2 text-[12.5px] font-semibold tracking-tight text-background transition-all duration-300 hover:bg-foreground/90"
+        style={{ boxShadow: '0 1px 0 0 rgba(255,255,255,0.08) inset, 0 8px 22px -8px rgba(0,0,0,0.5)' }}
       >
-        <Plus className="h-3.5 w-3.5 transition-transform duration-300 group-hover:rotate-90" strokeWidth={2.25} />
-        New project
+        <Plus className="h-3.5 w-3.5 transition-transform duration-300 group-hover:rotate-90" strokeWidth={2.5} />
+        Create your first project
       </button>
     </div>
   )
@@ -63,18 +88,28 @@ export function Dashboard() {
 
   return (
     <div className="relative min-h-full">
-      {/* Ambient background accents */}
+      {/* Ambient background accents — slow drift for life without distraction */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 overflow-hidden"
       >
-        <div
+        <motion.div
+          animate={{ x: [0, 18, 0], y: [0, -12, 0] }}
+          transition={{ duration: 22, repeat: Infinity, ease: 'easeInOut' }}
           className="absolute -left-24 top-[-120px] h-[320px] w-[320px] rounded-full opacity-[0.18] blur-3xl"
           style={{ background: 'radial-gradient(circle at center, #6366f1 0%, transparent 60%)' }}
         />
-        <div
+        <motion.div
+          animate={{ x: [0, -24, 0], y: [0, 14, 0] }}
+          transition={{ duration: 26, repeat: Infinity, ease: 'easeInOut' }}
           className="absolute right-[-80px] top-[120px] h-[260px] w-[260px] rounded-full opacity-[0.12] blur-3xl"
           style={{ background: 'radial-gradient(circle at center, #a855f7 0%, transparent 60%)' }}
+        />
+        <motion.div
+          animate={{ x: [0, 12, 0], y: [0, 18, 0] }}
+          transition={{ duration: 30, repeat: Infinity, ease: 'easeInOut' }}
+          className="absolute left-[40%] top-[60%] h-[220px] w-[220px] rounded-full opacity-[0.08] blur-3xl"
+          style={{ background: 'radial-gradient(circle at center, #14b8a6 0%, transparent 60%)' }}
         />
       </div>
 

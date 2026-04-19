@@ -346,8 +346,30 @@ function ProjectHeader({ name, description, status, progress, accent }: ProjectH
               boxShadow: `0 0 12px ${accent}55`
             }}
           />
+          {clamped > 0 && clamped < 100 && (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute top-1/2 -translate-y-1/2"
+              style={{ left: `calc(${clamped}% - 3px)` }}
+            >
+              <motion.span
+                animate={{ opacity: [0.4, 1, 0.4] }}
+                transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
+                className="block h-1.5 w-1.5 rounded-full"
+                style={{
+                  background: accent,
+                  boxShadow: `0 0 8px ${accent}ee`
+                }}
+              />
+            </div>
+          )}
         </div>
-        <span className="w-10 text-right text-[11px] tabular-nums text-muted-foreground">
+        <span
+          className={`w-10 text-right text-[11px] tabular-nums ${
+            clamped >= 100 ? '' : 'text-muted-foreground'
+          }`}
+          style={clamped >= 100 ? { color: accent } : undefined}
+        >
           {clamped}%
         </span>
       </div>
@@ -495,10 +517,29 @@ function GroupedPhases({
 
 function EmptyPhasesState() {
   return (
-    <div className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-dashed border-border/60 bg-card/20 px-6 py-14 text-center">
-      <span className="text-[13.5px] font-medium text-foreground">No phases yet</span>
-      <span className="text-[12px] text-muted-foreground">
-        Create a phase to start organizing work.
+    <div className="relative flex flex-col items-center justify-center gap-1.5 overflow-hidden rounded-2xl border border-dashed border-border/60 bg-card/20 px-6 py-16 text-center">
+      <motion.div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        animate={{ opacity: [0.25, 0.5, 0.25] }}
+        transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
+        style={{
+          background:
+            'radial-gradient(circle at 50% 0%, rgba(99,102,241,0.08) 0%, transparent 60%)'
+        }}
+      />
+      <motion.div
+        animate={{ y: [0, -2, 0] }}
+        transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+        className="relative mb-1.5 flex h-10 w-10 items-center justify-center rounded-xl border border-border/70 bg-secondary/40 text-muted-foreground"
+      >
+        <Clock className="h-4 w-4" strokeWidth={1.75} />
+      </motion.div>
+      <span className="relative text-[13.5px] font-medium text-foreground">
+        Every project needs a first step
+      </span>
+      <span className="relative text-[12px] text-muted-foreground">
+        Add a phase below to start organizing work.
       </span>
     </div>
   )

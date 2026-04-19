@@ -215,6 +215,23 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
   >(null)
   const [goals, setGoals] = useState<Goal[]>([])
 
+  // Celebration trigger: fires once when status transitions to 'done'.
+  // Same pattern as ItemRow — ref tracks previous status so updates that
+  // persist 'done' don't re-fire, and we skip the initial render as well.
+  const prevStatusRef = useRef<ItemStatus | null>(null)
+  const [celebrate, setCelebrate] = useState(false)
+  useEffect(() => {
+    const next = item?.status ?? null
+    if (prevStatusRef.current && prevStatusRef.current !== 'done' && next === 'done') {
+      setCelebrate(true)
+      const t = window.setTimeout(() => setCelebrate(false), 1400)
+      prevStatusRef.current = next
+      return () => window.clearTimeout(t)
+    }
+    prevStatusRef.current = next
+    return
+  }, [item?.status])
+
   const flashError = useCallback((msg: string) => {
     setErrorMsg(msg)
     window.setTimeout(() => setErrorMsg((m) => (m === msg ? null : m)), 3000)
@@ -506,6 +523,43 @@ function PanelBody({ itemId, onClose }: { itemId: string; onClose: () => void })
           )}
         </div>
       </div>
+
+      {/* Celebration glow layer — fires on status → done. Positioned at the
+          root so it overlays the whole panel (not just one section). */}
+      <AnimatePresence>
+        {celebrate && (
+          <motion.div
+            aria-hidden
+            key="panel-celebrate"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: [0, 1, 0] }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 1.4, ease: [0.22, 1, 0.36, 1] }}
+            className="pointer-events-none absolute inset-0 z-40"
+            style={{
+              background:
+                'radial-gradient(80% 60% at 50% 35%, rgba(52,211,153,0.16) 0%, transparent 70%)',
+              boxShadow: 'inset 0 0 0 1px rgba(52,211,153,0.3)'
+            }}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {celebrate && (
+          <motion.div
+            aria-hidden
+            key="panel-celebrate-ring"
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: [0.9, 1.2, 1.5], opacity: [0.6, 0.3, 0] }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
+            className="pointer-events-none absolute left-1/2 top-[20%] z-40 h-20 w-20 -translate-x-1/2 -translate-y-1/2 rounded-full"
+            style={{
+              boxShadow: '0 0 0 2px rgba(52,211,153,0.45)'
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Scrollable content */}
       <div className="min-h-0 flex-1 overflow-y-auto">

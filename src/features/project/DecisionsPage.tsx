@@ -187,7 +187,10 @@ export function DecisionsPage() {
             <Loader2 className="h-4 w-4 animate-spin" />
           </div>
         ) : items.length === 0 ? (
-          <EmptyState accent={accent} />
+          <EmptyState
+            accent={accent}
+            onCreate={project ? () => openQuickCaptureAsDecision(project.id) : undefined}
+          />
         ) : (
           <div className="space-y-10">
             {grouped.map((section) => (
@@ -271,24 +274,46 @@ export function DecisionsPage() {
   )
 }
 
-function EmptyState({ accent }: { accent: string }) {
+function EmptyState({ accent, onCreate }: { accent: string; onCreate?: () => void }) {
   return (
-    <div
-      className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/60 bg-card/30 px-6 py-20 text-center"
-    >
-      <div
-        className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-border/70 bg-secondary/40"
-        style={{ boxShadow: `0 0 0 4px ${accent}14` }}
+    <div className="relative flex flex-col items-center justify-center overflow-hidden rounded-2xl border border-dashed border-border/60 bg-card/30 px-6 py-24 text-center">
+      <motion.div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        animate={{ opacity: [0.3, 0.55, 0.3] }}
+        transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
+        style={{
+          background: `radial-gradient(circle at 50% 50%, ${accent}14 0%, transparent 55%)`
+        }}
+      />
+      <motion.div
+        animate={{ y: [0, -3, 0] }}
+        transition={{ duration: 4.2, repeat: Infinity, ease: 'easeInOut' }}
+        className="relative mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-border/70 bg-secondary/40"
+        style={{
+          boxShadow: `0 0 0 4px ${accent}0f, 0 20px 44px -22px ${accent}aa, inset 0 1px 0 rgba(255,255,255,0.04)`
+        }}
       >
-        <GitBranch className="h-6 w-6 text-muted-foreground" strokeWidth={1.75} />
-      </div>
-      <h2 className="text-[15px] font-semibold tracking-tight text-foreground">
-        No decisions logged yet
+        <GitBranch className="h-6 w-6" style={{ color: accent }} strokeWidth={1.75} />
+      </motion.div>
+      <h2 className="relative text-[15px] font-semibold tracking-tight text-foreground">
+        Every great project is a trail of decisions
       </h2>
-      <p className="mt-1.5 max-w-md text-[13px] leading-5 text-muted-foreground">
-        Record the choice you just made — what you picked, what you didn't, and why.
-        Future-you will thank you when you forget why the system works the way it does.
+      <p className="relative mt-1.5 max-w-md text-[13px] leading-5 text-muted-foreground">
+        Capture what you picked, what you didn't, and why. Future-you will thank present-you
+        when the "wait, why did we do it this way?" moment arrives.
       </p>
+      {onCreate && (
+        <button
+          type="button"
+          onClick={onCreate}
+          className="group relative mt-6 inline-flex items-center gap-2 rounded-full border border-border/80 bg-foreground px-4 py-2 text-[12.5px] font-semibold tracking-tight text-background transition-all duration-300 hover:bg-foreground/90"
+          style={{ boxShadow: '0 1px 0 0 rgba(255,255,255,0.08) inset, 0 8px 22px -8px rgba(0,0,0,0.5)' }}
+        >
+          <Plus className="h-3.5 w-3.5 transition-transform duration-300 group-hover:rotate-90" strokeWidth={2.5} />
+          Log first decision
+        </button>
+      )}
     </div>
   )
 }

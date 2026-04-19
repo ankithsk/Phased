@@ -41,6 +41,17 @@ const TYPE_TINT: Record<ItemType, string> = {
   decision: 'text-amber-300/80'
 }
 
+// Raw accent colors keyed off the same palette as TYPE_TINT, used for the
+// hover reveal bar and any other inline-style contexts where a Tailwind
+// class can't be composed dynamically.
+const TYPE_ACCENT_RGB: Record<ItemType, string> = {
+  feature: '196, 181, 253',  // violet-300
+  bug: '253, 164, 175',      // rose-300
+  feedback: '125, 211, 252', // sky-300
+  note: '212, 212, 216',     // zinc-300
+  decision: '252, 211, 77'   // amber-300
+}
+
 const PRIORITY_DOT: Record<ItemPriority, string> = {
   critical: 'bg-rose-400 shadow-[0_0_0_3px_rgba(244,63,94,0.12)]',
   high: 'bg-orange-400 shadow-[0_0_0_3px_rgba(251,146,60,0.12)]',
@@ -118,6 +129,20 @@ export function ItemRow({ item, onClick, goalNames }: ItemRowProps) {
   const statusRef = useRef<HTMLDivElement>(null)
   const goalName = item.goal_id ? goalNames?.[item.goal_id] : null
 
+  // Trigger a brief celebratory glow when the status transitions to "done".
+  // We track the previous status so edits that persist "done" don't re-fire.
+  const prevStatusRef = useRef<ItemStatus>(item.status)
+  const [celebrate, setCelebrate] = useState(false)
+  useEffect(() => {
+    if (prevStatusRef.current !== 'done' && item.status === 'done') {
+      setCelebrate(true)
+      const t = window.setTimeout(() => setCelebrate(false), 1200)
+      return () => window.clearTimeout(t)
+    }
+    prevStatusRef.current = item.status
+    return
+  }, [item.status])
+
   useEffect(() => {
     if (!statusOpen) return
     const onDoc = (e: MouseEvent) => {
@@ -146,6 +171,8 @@ export function ItemRow({ item, onClick, goalNames }: ItemRowProps) {
     }
   }
 
+  const isDone = item.status === 'done'
+
   return (
     <div
       role="button"
@@ -154,19 +181,66 @@ export function ItemRow({ item, onClick, goalNames }: ItemRowProps) {
       onKeyDown={(e) => {
         if (e.key === 'Enter') onClick()
       }}
-      className={`group relative flex min-h-[56px] items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 transition-colors duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:border-border/70 hover:bg-secondary/30 focus:outline-none focus-visible:border-border focus-visible:bg-secondary/40 ${
+      className={`group relative flex min-h-[56px] items-center gap-3 overflow-hidden rounded-xl border border-transparent px-3 py-2.5 transition-[background-color,border-color,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:border-border/70 hover:bg-secondary/30 focus:outline-none focus-visible:border-border focus-visible:bg-secondary/40 ${
         item.archived ? 'opacity-60' : ''
       }`}
     >
+      {/* Left reveal bar on hover — tinted to the item's type accent so the
+          cue tells you what kind of thing you're about to open. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-y-1.5 left-0 w-[2px] origin-top scale-y-0 rounded-full transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-y-100"
+        style={{
+          background: `linear-gradient(to bottom, rgba(${TYPE_ACCENT_RGB[item.type]}, 0.85), rgba(${TYPE_ACCENT_RGB[item.type]}, 0.35))`,
+          boxShadow: `0 0 12px rgba(${TYPE_ACCENT_RGB[item.type]}, 0.35)`
+        }}
+      />
+
+      {/* Celebration glow (fires on status → done) */}
+      <AnimatePresence>
+        {celebrate && (
+          <motion.div
+            aria-hidden
+            key="celebrate"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: [0, 0.9, 0] }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
+            className="pointer-events-none absolute inset-0 rounded-xl"
+            style={{
+              background:
+                'radial-gradient(60% 80% at 50% 50%, rgba(52,211,153,0.18) 0%, transparent 70%)',
+              boxShadow: 'inset 0 0 0 1px rgba(52,211,153,0.35)'
+            }}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Type icon */}
-      <div className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-secondary/50 ring-1 ring-inset ring-border/50">
+      <div className="relative flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-secondary/50 ring-1 ring-inset ring-border/50">
         <Icon className={`h-3.5 w-3.5 ${TYPE_TINT[item.type]}`} />
+        {celebrate && (
+          <motion.span
+            aria-hidden
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: [0.8, 1.6], opacity: [0.7, 0] }}
+            transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}
+            className="pointer-events-none absolute inset-0 rounded-lg"
+            style={{ boxShadow: '0 0 0 2px rgba(52,211,153,0.4)' }}
+          />
+        )}
       </div>
 
       {/* Title + meta */}
-      <div className="min-w-0 flex-1">
+      <div className="relative min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="truncate text-[13.5px] font-medium text-foreground">
+          <span
+            className={`truncate text-[13.5px] font-medium transition-colors ${
+              isDone
+                ? 'text-muted-foreground/80 [text-decoration-thickness:1px] line-through decoration-muted-foreground/40'
+                : 'text-foreground'
+            }`}
+          >
             {item.title}
           </span>
           {item.archived && (
@@ -226,7 +300,7 @@ export function ItemRow({ item, onClick, goalNames }: ItemRowProps) {
       </div>
 
       {/* Right controls */}
-      <div className="flex flex-none items-center gap-2">
+      <div className="relative flex flex-none items-center gap-2">
         {/* Priority dot */}
         <span
           aria-label={`priority ${item.priority}`}
