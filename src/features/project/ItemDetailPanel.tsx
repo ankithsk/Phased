@@ -799,6 +799,70 @@ function useDropdown() {
   return { open, setOpen, ref }
 }
 
+/**
+ * Responsive dropdown shell for the meta pills (Type / Priority / Status /
+ * Goal). On desktop it anchors under the trigger like a classic dropdown.
+ * On mobile (< sm) it becomes a bottom sheet with a backdrop + drag handle so
+ * fat-finger taps land on real targets instead of a 220px floating chip.
+ *
+ * Kept DOM-descendant of the trigger's ref wrapper so the shared
+ * `useDropdown` click-outside logic still closes it correctly when tapping
+ * *away* from both the trigger and the menu.
+ */
+function PillMenu({
+  open,
+  onClose,
+  minWidthClass = 'sm:min-w-[160px]',
+  maxWidthClass = '',
+  children
+}: {
+  open: boolean
+  onClose: () => void
+  minWidthClass?: string
+  maxWidthClass?: string
+  children: React.ReactNode
+}) {
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          {/* Mobile-only backdrop — hidden on sm+. */}
+          <motion.div
+            key="pm-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.14 }}
+            onClick={onClose}
+            className="fixed inset-0 z-[55] bg-black/45 backdrop-blur-[2px] sm:hidden"
+            aria-hidden
+          />
+          <motion.div
+            key="pm-menu"
+            role="menu"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 6 }}
+            transition={{ duration: 0.18, ease: EASE }}
+            className={`fixed inset-x-0 bottom-0 z-[60] max-h-[60vh] overflow-y-auto rounded-t-2xl border-t border-border/80 bg-popover/95 p-2 pb-[max(env(safe-area-inset-bottom),1rem)] shadow-[0_-20px_40px_-20px_rgba(0,0,0,0.7)] backdrop-blur-xl sm:absolute sm:inset-x-auto sm:bottom-auto sm:left-0 sm:top-full sm:z-20 sm:mt-1.5 sm:max-h-none sm:w-auto sm:rounded-lg sm:border sm:p-1 sm:pb-1 sm:shadow-xl ${minWidthClass} ${maxWidthClass}`}
+          >
+            {/* Mobile drag-handle affordance */}
+            <div
+              aria-hidden
+              className="mx-auto mb-2 h-1 w-10 rounded-full bg-border/70 sm:hidden"
+            />
+            {children}
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  )
+}
+
+/** Shared class for menu option buttons — bigger hit area on mobile. */
+const PILL_OPTION_CLS =
+  'flex w-full items-center gap-2 rounded-md px-2.5 py-3 text-left text-[13px] text-foreground/90 transition-colors hover:bg-secondary/70 active:bg-secondary sm:py-1.5 sm:text-[12px]'
+
 function TypePill({
   value,
   onChange
@@ -819,36 +883,26 @@ function TypePill({
         {TYPE_LABEL[value]}
         <ChevronDown className="h-3 w-3 opacity-60" />
       </button>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -4, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, scale: 0.98 }}
-            transition={{ duration: 0.14, ease: EASE }}
-            className="absolute left-0 top-full z-20 mt-1.5 min-w-[160px] overflow-hidden rounded-lg border border-border/80 bg-popover/95 p-1 shadow-xl backdrop-blur-xl"
-          >
-            {TYPES.map((t) => {
-              const I = TYPE_ICON[t]
-              return (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => {
-                    setOpen(false)
-                    onChange(t)
-                  }}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-foreground/90 transition-colors hover:bg-secondary/70"
-                >
-                  <I className={`h-3.5 w-3.5 ${TYPE_TINT[t]}`} />
-                  <span className="flex-1">{TYPE_LABEL[t]}</span>
-                  {value === t && <Check className="h-3 w-3 opacity-60" />}
-                </button>
-              )
-            })}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <PillMenu open={open} onClose={() => setOpen(false)} minWidthClass="sm:min-w-[160px]">
+        {TYPES.map((t) => {
+          const I = TYPE_ICON[t]
+          return (
+            <button
+              key={t}
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                onChange(t)
+              }}
+              className={PILL_OPTION_CLS}
+            >
+              <I className={`h-4 w-4 sm:h-3.5 sm:w-3.5 ${TYPE_TINT[t]}`} />
+              <span className="flex-1">{TYPE_LABEL[t]}</span>
+              {value === t && <Check className="h-3.5 w-3.5 opacity-60 sm:h-3 sm:w-3" />}
+            </button>
+          )
+        })}
+      </PillMenu>
     </div>
   )
 }
@@ -872,33 +926,23 @@ function PriorityPill({
         {PRIORITY_LABEL[value]}
         <ChevronDown className="h-3 w-3 opacity-60" />
       </button>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -4, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, scale: 0.98 }}
-            transition={{ duration: 0.14, ease: EASE }}
-            className="absolute left-0 top-full z-20 mt-1.5 min-w-[150px] overflow-hidden rounded-lg border border-border/80 bg-popover/95 p-1 shadow-xl backdrop-blur-xl"
+      <PillMenu open={open} onClose={() => setOpen(false)} minWidthClass="sm:min-w-[150px]">
+        {PRIORITIES.map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={() => {
+              setOpen(false)
+              onChange(p)
+            }}
+            className={PILL_OPTION_CLS}
           >
-            {PRIORITIES.map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => {
-                  setOpen(false)
-                  onChange(p)
-                }}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-foreground/90 transition-colors hover:bg-secondary/70"
-              >
-                <span className={`h-2 w-2 rounded-full ${PRIORITY_DOT[p]}`} />
-                <span className="flex-1">{PRIORITY_LABEL[p]}</span>
-                {value === p && <Check className="h-3 w-3 opacity-60" />}
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
+            <span className={`h-2.5 w-2.5 rounded-full sm:h-2 sm:w-2 ${PRIORITY_DOT[p]}`} />
+            <span className="flex-1">{PRIORITY_LABEL[p]}</span>
+            {value === p && <Check className="h-3.5 w-3.5 opacity-60 sm:h-3 sm:w-3" />}
+          </button>
+        ))}
+      </PillMenu>
     </div>
   )
 }
@@ -921,32 +965,22 @@ function StatusPill({
         {STATUS_LABEL[value]}
         <ChevronDown className="h-3 w-3 opacity-60" />
       </button>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -4, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, scale: 0.98 }}
-            transition={{ duration: 0.14, ease: EASE }}
-            className="absolute left-0 top-full z-20 mt-1.5 min-w-[150px] overflow-hidden rounded-lg border border-border/80 bg-popover/95 p-1 shadow-xl backdrop-blur-xl"
+      <PillMenu open={open} onClose={() => setOpen(false)} minWidthClass="sm:min-w-[150px]">
+        {STATUSES.map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => {
+              setOpen(false)
+              onChange(s)
+            }}
+            className={`${PILL_OPTION_CLS} justify-between`}
           >
-            {STATUSES.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => {
-                  setOpen(false)
-                  onChange(s)
-                }}
-                className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[12px] text-foreground/90 transition-colors hover:bg-secondary/70"
-              >
-                <span>{STATUS_LABEL[s]}</span>
-                {value === s && <Check className="h-3 w-3 opacity-60" />}
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
+            <span>{STATUS_LABEL[s]}</span>
+            {value === s && <Check className="h-3.5 w-3.5 opacity-60 sm:h-3 sm:w-3" />}
+          </button>
+        ))}
+      </PillMenu>
     </div>
   )
 }
@@ -981,56 +1015,51 @@ function GoalPill({
         </span>
         <ChevronDown className="h-3 w-3 opacity-60" />
       </button>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -4, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, scale: 0.98 }}
-            transition={{ duration: 0.14, ease: EASE }}
-            className="absolute left-0 top-full z-20 mt-1.5 min-w-[220px] max-w-[320px] overflow-hidden rounded-lg border border-border/80 bg-popover/95 p-1 shadow-xl backdrop-blur-xl"
-          >
+      <PillMenu
+        open={open}
+        onClose={() => setOpen(false)}
+        minWidthClass="sm:min-w-[220px]"
+        maxWidthClass="sm:max-w-[320px]"
+      >
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false)
+            onChange(null)
+          }}
+          className={`${PILL_OPTION_CLS} text-foreground/80`}
+        >
+          <Target className="h-4 w-4 text-muted-foreground/70 sm:h-3.5 sm:w-3.5" />
+          <span className="flex-1">No goal</span>
+          {value === null && <Check className="h-3.5 w-3.5 opacity-60 sm:h-3 sm:w-3" />}
+        </button>
+        {options.length === 0 ? (
+          <div className="px-3 py-3 text-[12.5px] text-muted-foreground/60 sm:py-2 sm:text-[12px]">
+            No goals defined yet for this project.
+          </div>
+        ) : (
+          options.map((g) => (
             <button
+              key={g.id}
               type="button"
               onClick={() => {
                 setOpen(false)
-                onChange(null)
+                onChange(g.id)
               }}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-foreground/80 transition-colors hover:bg-secondary/70"
+              className={PILL_OPTION_CLS}
             >
-              <Target className="h-3.5 w-3.5 text-muted-foreground/70" />
-              <span className="flex-1">No goal</span>
-              {value === null && <Check className="h-3 w-3 opacity-60" />}
+              <Target className="h-4 w-4 text-amber-300/80 sm:h-3.5 sm:w-3.5" />
+              <span className="flex-1 truncate">{g.name}</span>
+              {g.status !== 'active' && (
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                  {g.status}
+                </span>
+              )}
+              {value === g.id && <Check className="h-3.5 w-3.5 opacity-60 sm:h-3 sm:w-3" />}
             </button>
-            {options.length === 0 ? (
-              <div className="px-3 py-2 text-[12px] text-muted-foreground/60">
-                No goals defined yet for this project.
-              </div>
-            ) : (
-              options.map((g) => (
-                <button
-                  key={g.id}
-                  type="button"
-                  onClick={() => {
-                    setOpen(false)
-                    onChange(g.id)
-                  }}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-foreground/90 transition-colors hover:bg-secondary/70"
-                >
-                  <Target className="h-3.5 w-3.5 text-amber-300/80" />
-                  <span className="flex-1 truncate">{g.name}</span>
-                  {g.status !== 'active' && (
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
-                      {g.status}
-                    </span>
-                  )}
-                  {value === g.id && <Check className="h-3 w-3 opacity-60" />}
-                </button>
-              ))
-            )}
-          </motion.div>
+          ))
         )}
-      </AnimatePresence>
+      </PillMenu>
     </div>
   )
 }
