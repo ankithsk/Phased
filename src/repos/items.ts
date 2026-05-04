@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { itemBus } from '@/lib/events'
 import type { Item, ItemStatus } from '@/types/db'
 
 async function currentUserId(): Promise<string> {
@@ -142,6 +143,7 @@ export const itemsRepo = {
       .select()
       .single()
     if (error) throw error
+    itemBus.emitCreated(data)
     return data
   },
 
@@ -153,6 +155,7 @@ export const itemsRepo = {
       .select()
       .single()
     if (error) throw error
+    itemBus.emitUpdated(data)
     return data
   },
 

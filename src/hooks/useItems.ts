@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { itemsRepo } from '@/repos/items'
 import { supabase } from '@/lib/supabase'
+import { itemBus } from '@/lib/events'
 import type { Item } from '@/types/db'
 
 export function useItemsByPhase(phaseId: string | null, enabled: boolean = true) {
@@ -25,21 +26,40 @@ export function useItemsByPhase(phaseId: string | null, enabled: boolean = true)
       .then((data) => mounted && setItems(data))
       .finally(() => mounted && setLoading(false))
 
+    const refetch = async () => {
+      if (!mounted) return
+      const data = await itemsRepo.listByPhase(phaseId, true)
+      if (mounted) setItems(data)
+    }
+
     const channel = supabase
       .channel(`items:phase:${phaseId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'items', filter: `phase_id=eq.${phaseId}` },
-        async () => {
-          if (!mounted) return
-          const data = await itemsRepo.listByPhase(phaseId, true)
-          if (mounted) setItems(data)
+        () => {
+          void refetch()
         }
       )
       .subscribe()
 
+    // Local fallback: same-tab writes refresh the list immediately even if
+    // Supabase realtime delivery lags or the table isn't in the publication.
+    // We refetch when an event mentions this phase, OR when an item update
+    // doesn't (the row may have been moved out of this phase).
+    const offBus = itemBus.on((detail) => {
+      if (detail.kind === 'created' && detail.item.phase_id === phaseId) {
+        void refetch()
+      } else if (detail.kind === 'updated') {
+        void refetch()
+      } else if (detail.kind === 'deleted' && detail.phaseId === phaseId) {
+        void refetch()
+      }
+    })
+
     return () => {
       mounted = false
+      offBus()
       supabase.removeChannel(channel)
     }
   }, [phaseId, enabled])
@@ -70,8 +90,14 @@ export function usePinnedItems(projectId: string | null) {
       })
       .subscribe()
 
+    // Same-tab fallback: any item write may flip pinned; just refetch.
+    const offBus = itemBus.on(() => {
+      if (mounted) void load()
+    })
+
     return () => {
       mounted = false
+      offBus()
       supabase.removeChannel(channel)
     }
   }, [projectId])

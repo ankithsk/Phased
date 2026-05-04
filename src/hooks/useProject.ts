@@ -4,6 +4,7 @@ import { modulesRepo } from '@/repos/modules'
 import { phasesRepo } from '@/repos/phases'
 import { itemsRepo } from '@/repos/items'
 import { supabase } from '@/lib/supabase'
+import { itemBus } from '@/lib/events'
 import type { Project, Module, Phase } from '@/types/db'
 
 export interface UseProjectResult {
@@ -97,8 +98,13 @@ export function useProject(projectId: string | undefined): UseProjectResult {
       )
       .subscribe()
 
+    // Local bus fallback so phase header badges update instantly on writes
+    // from this tab even if the items table isn't in the realtime publication.
+    const offBus = itemBus.on(scheduleCountsRefresh)
+
     return () => {
       mounted = false
+      offBus()
       if (countsTimerRef.current) window.clearTimeout(countsTimerRef.current)
       supabase.removeChannel(channel)
     }

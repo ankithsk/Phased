@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Bug,
@@ -127,6 +128,16 @@ export function ItemRow({ item, onClick, goalNames }: ItemRowProps) {
   const Icon = TYPE_ICON[item.type]
   const [statusOpen, setStatusOpen] = useState(false)
   const statusRef = useRef<HTMLDivElement>(null)
+  const statusBtnRef = useRef<HTMLButtonElement>(null)
+  const statusMenuRef = useRef<HTMLDivElement>(null)
+  // Portal-positioned coordinates: the chip lives inside the row's
+  // overflow-hidden container (needed for the hover reveal bar + celebrate
+  // glow), so we render the menu into document.body and pin it to the
+  // trigger's viewport rect.
+  const [statusPos, setStatusPos] = useState<{
+    top: number
+    right: number
+  } | null>(null)
   const goalName = item.goal_id ? goalNames?.[item.goal_id] : null
 
   // Trigger a brief celebratory glow when the status transitions to "done".
@@ -144,14 +155,33 @@ export function ItemRow({ item, onClick, goalNames }: ItemRowProps) {
   }, [item.status])
 
   useEffect(() => {
-    if (!statusOpen) return
-    const onDoc = (e: MouseEvent) => {
-      if (statusRef.current && !statusRef.current.contains(e.target as Node)) {
-        setStatusOpen(false)
-      }
+    if (!statusOpen) {
+      setStatusPos(null)
+      return
     }
+    const update = () => {
+      const r = statusBtnRef.current?.getBoundingClientRect()
+      if (!r) return
+      setStatusPos({
+        top: r.bottom + 6,
+        right: window.innerWidth - r.right,
+      })
+    }
+    update()
+    const onDoc = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (statusRef.current?.contains(target)) return
+      if (statusMenuRef.current?.contains(target)) return
+      setStatusOpen(false)
+    }
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
     document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+      document.removeEventListener('mousedown', onDoc)
+    }
   }, [statusOpen])
 
   const visibleTags = item.tags.slice(0, 3)
@@ -310,6 +340,7 @@ export function ItemRow({ item, onClick, goalNames }: ItemRowProps) {
         {/* Status chip / dropdown */}
         <div ref={statusRef} className="relative" onClick={(e) => e.stopPropagation()}>
           <button
+            ref={statusBtnRef}
             type="button"
             onClick={() => setStatusOpen((v) => !v)}
             className={`flex items-center gap-1 rounded-md border px-2 py-1 text-[10.5px] font-medium transition-colors ${STATUS_CHIP[item.status]}`}
@@ -317,29 +348,41 @@ export function ItemRow({ item, onClick, goalNames }: ItemRowProps) {
             {STATUS_LABEL[item.status]}
             <ChevronDown className="h-3 w-3 opacity-60" />
           </button>
-          <AnimatePresence>
-            {statusOpen && (
-              <motion.div
-                initial={{ opacity: 0, y: -4, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -4, scale: 0.98 }}
-                transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
-                className="absolute right-0 top-full z-20 mt-1.5 min-w-[140px] overflow-hidden rounded-lg border border-border/80 bg-popover/95 p-1 shadow-xl backdrop-blur-xl"
-              >
-                {STATUSES.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => handleStatusChange(s)}
-                    className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[12px] text-foreground/90 transition-colors hover:bg-secondary/70"
+          {typeof document !== 'undefined' &&
+            createPortal(
+              <AnimatePresence>
+                {statusOpen && statusPos && (
+                  <motion.div
+                    ref={statusMenuRef}
+                    initial={{ opacity: 0, y: -4, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -4, scale: 0.98 }}
+                    transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="min-w-[140px] overflow-hidden rounded-lg border border-border/80 bg-popover/95 p-1 shadow-xl backdrop-blur-xl"
+                    style={{
+                      position: 'fixed',
+                      top: statusPos.top,
+                      right: statusPos.right,
+                      zIndex: 60,
+                    }}
                   >
-                    <span>{STATUS_LABEL[s]}</span>
-                    {item.status === s && <Check className="h-3 w-3 opacity-60" />}
-                  </button>
-                ))}
-              </motion.div>
+                    {STATUSES.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => handleStatusChange(s)}
+                        className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[12px] text-foreground/90 transition-colors hover:bg-secondary/70"
+                      >
+                        <span>{STATUS_LABEL[s]}</span>
+                        {item.status === s && <Check className="h-3 w-3 opacity-60" />}
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>,
+              document.body
             )}
-          </AnimatePresence>
         </div>
 
         {/* Pin */}
