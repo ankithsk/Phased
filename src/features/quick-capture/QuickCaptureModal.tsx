@@ -13,11 +13,13 @@ import {
   Check,
   AlertCircle,
 } from 'lucide-react'
+import { createPortal } from 'react-dom'
 import { projectsRepo } from '@/repos/projects'
 import { modulesRepo } from '@/repos/modules'
 import { phasesRepo } from '@/repos/phases'
 import { itemsRepo } from '@/repos/items'
 import { activityRepo } from '@/repos/activity'
+import { supabase } from '@/lib/supabase'
 import type {
   ItemPriority,
   ItemType,
@@ -101,7 +103,7 @@ export function QuickCaptureModal(props: QuickCaptureModalProps) {
   const [type, setType] = useState<ItemType>('note')
   const [title, setTitle] = useState('')
   const [titleError, setTitleError] = useState<string | null>(null)
-  const [showMore, setShowMore] = useState(false)
+  const [showMore, setShowMore] = useState(true)
   const [description, setDescription] = useState('')
   const [source, setSource] = useState('')
   const [priority, setPriority] = useState<ItemPriority>('medium')
@@ -196,6 +198,64 @@ export function QuickCaptureModal(props: QuickCaptureModalProps) {
     }
   }, [open, selectedProjectId, projects])
 
+  // ——— Realtime: keep dropdowns + captured rows fresh —————————
+  // Subscribes while the modal is open so additions made in this modal (or in
+  // another tab) refresh the project / module / phase pickers without a
+  // reopen, and so the active project's modules + phases stay in sync if a
+  // phase is added or renamed elsewhere.
+  useEffect(() => {
+    if (!open) return
+    const refreshProjects = () => {
+      projectsRepo
+        .list()
+        .then((rows) => setProjects(rows))
+        .catch(() => {
+          /* transient — leave existing list alone */
+        })
+    }
+    const refreshModules = () => {
+      if (!selectedProjectId) return
+      modulesRepo
+        .listByProject(selectedProjectId)
+        .then((rows) => setModules(rows.filter((m) => !m.archived)))
+        .catch(() => {
+          /* ignore */
+        })
+    }
+    const refreshPhases = () => {
+      if (!selectedProjectId) return
+      phasesRepo
+        .listByProject(selectedProjectId)
+        .then(setPhases)
+        .catch(() => {
+          /* ignore */
+        })
+    }
+
+    const channel = supabase
+      .channel('quick-capture')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'projects' },
+        refreshProjects
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'modules' },
+        refreshModules
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'phases' },
+        refreshPhases
+      )
+      .subscribe()
+
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  }, [open, selectedProjectId])
+
   // ——— Filter phases by module, pick default ———————————————————
   const availablePhases = useMemo(() => {
     const project = projects.find((p) => p.id === selectedProjectId)
@@ -238,7 +298,7 @@ export function QuickCaptureModal(props: QuickCaptureModalProps) {
     setType('note')
     setTitle('')
     setTitleError(null)
-    setShowMore(false)
+    setShowMore(true)
     setDescription('')
     setSource('')
     setPriority('medium')
@@ -971,11 +1031,42 @@ function ContextPill({
   accentRing: string
   tinted?: boolean
 }) {
+  // Portal the dropdown to document.body so the modal body's overflow-y-auto
+  // can't clip it when there are many entries (or when the body scrolls).
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{
+    top: number
+    left: number
+    minWidth: number
+  } | null>(null)
+
+  useEffect(() => {
+    if (!open) {
+      setPos(null)
+      return
+    }
+    const update = () => {
+      const r = triggerRef.current?.getBoundingClientRect()
+      if (!r) return
+      setPos({ top: r.bottom + 6, left: r.left, minWidth: r.width })
+    }
+    update()
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+    }
+  }, [open])
+
   useEffect(() => {
     if (!open) return
     const handler = (e: MouseEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) onClose()
+      const target = e.target as Node
+      if (triggerRef.current?.contains(target)) return
+      if (menuRef.current?.contains(target)) return
+      onClose()
     }
     const t = setTimeout(
       () => document.addEventListener('mousedown', handler),
@@ -988,8 +1079,9 @@ function ContextPill({
   }, [open, onClose])
 
   return (
-    <div className="relative" ref={menuRef}>
+    <div className="relative">
       <button
+        ref={triggerRef}
         type="button"
         onClick={onToggle}
         className="group inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[11.5px] text-white/80 hover:text-white transition-colors"
@@ -1011,26 +1103,37 @@ function ContextPill({
           }`}
         />
       </button>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -4, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, scale: 0.98 }}
-            transition={{ duration: 0.14, ease: APPLE_EASE }}
-            className="absolute left-0 top-[calc(100%+6px)] z-30 min-w-[200px] max-h-[240px] overflow-y-auto rounded-xl p-1"
-            style={{
-              background: 'rgba(22,24,30,0.96)',
-              backdropFilter: 'blur(18px) saturate(140%)',
-              border: '1px solid rgba(255,255,255,0.07)',
-              boxShadow:
-                '0 16px 40px -8px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.05) inset',
-            }}
-          >
-            {children}
-          </motion.div>
+      {typeof document !== 'undefined' &&
+        createPortal(
+          <AnimatePresence>
+            {open && pos && (
+              <motion.div
+                ref={menuRef}
+                initial={{ opacity: 0, y: -4, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -4, scale: 0.98 }}
+                transition={{ duration: 0.14, ease: APPLE_EASE }}
+                className="max-h-[240px] overflow-y-auto rounded-xl p-1"
+                style={{
+                  position: 'fixed',
+                  top: pos.top,
+                  left: pos.left,
+                  minWidth: Math.max(200, pos.minWidth),
+                  zIndex: 100,
+                  background: 'rgba(22,24,30,0.96)',
+                  backdropFilter: 'blur(18px) saturate(140%)',
+                  WebkitBackdropFilter: 'blur(18px) saturate(140%)',
+                  border: '1px solid rgba(255,255,255,0.07)',
+                  boxShadow:
+                    '0 16px 40px -8px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.05) inset',
+                }}
+              >
+                {children}
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body
         )}
-      </AnimatePresence>
     </div>
   )
 }
